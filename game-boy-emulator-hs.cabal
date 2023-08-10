@@ -1,0 +1,40 @@
+cabal-version:   3.4
+name:            game-boy-emulator-hs
+version:         0.1.0.0
+license:         MIT
+license-file:    LICENSE
+author:          Johannes Maier
+maintainer:      johannes.maier@mailbox.org
+category:        System
+build-type:      Simple
+extra-doc-files: CHANGELOG.md
+
+common warnings
+  ghc-options: -Wall
+
+library
+  import:           warnings
+  exposed-modules:  MyLib
+  build-depends:    base
+  hs-source-dirs:   src-lib
+  default-language: GHC2021
+
+executable game-boy-emulator-hs
+  import:           warnings
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , game-boy-emulator-hs
+
+  hs-source-dirs:   src-exe
+  default-language: GHC2021
+
+test-suite game-boy-emulator-hs-test
+  import:           warnings
+  default-language: GHC2021
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  build-depends:
+    , base
+    , game-boy-emulator-hs
