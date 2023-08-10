@@ -14,8 +14,12 @@ common warnings
 
 library
   import:           warnings
-  exposed-modules:  MyLib
-  build-depends:    base
+  exposed-modules:  Emulator
+  build-depends:
+    , base
+    , bytestring
+    , binary
+
   hs-source-dirs:   src-lib
   default-language: GHC2021
 
