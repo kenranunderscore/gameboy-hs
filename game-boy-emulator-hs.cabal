@@ -19,6 +19,7 @@ library
     , base
     , bytestring
     , binary
+    , array
 
   hs-source-dirs:   src-lib
   default-language: GHC2021

@@ -3,17 +3,48 @@
 
 module Emulator (run) where
 
+import Control.Monad
+import Data.Array (Array)
+import qualified Data.Array as Array
+import Data.Word
 import Data.List
-import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString as BS
 import Data.Binary.Get
+
+data CPU = CPU
+  { a :: Word8
+  , f :: Word8
+  , b :: Word8
+  , c :: Word8
+  , d :: Word8
+  , e :: Word8
+  , h :: Word8
+  , l :: Word8
+  , pc :: Word16
+  , sp :: Word16
+  }
+  deriving stock (Eq, Show)
+
+initialState :: CPU
+initialState = CPU 0 0 0 0 0 0 0 0 0 0
+
+type Memory = Array Word16 Word8
+
+loadBios :: IO Memory
+loadBios = do
+  let biosPath = "./resources/gb_bios.bin"
+  bs <- BS.readFile biosPath
+  let len = fromIntegral $ BS.length bs
+  when (len /= 256) (fail "unexpected BIOS size")
+  pure $ Array.listArray (0, len - 1) $ BS.unpack bs
+
+fetch :: Memory -> Word16 -> Maybe Op
+fetch mem addr = undefined
 
 run :: IO ()
 run = do
-  let biosPath = "./resources/gb_bios.bin"
-  bios <- LBS.readFile biosPath
-  let rom = runGet getInstructions bios
-  mapM_ print $
-    takeWhile (\(Op s) -> not $ "UNKNOWN" `isInfixOf` s) rom
+  bios <- loadBios
+  print bios
 
 newtype Op = Op String
   deriving newtype Show
@@ -108,13 +139,3 @@ getInstruction = getWord8 >>= \case
     _ <- getWord8
     op "CP A,u8"
   unknown -> op $ "UNKNOWN: " <> show unknown
-
-getInstructions :: Get [Op]
-getInstructions = do
-  empty <- isEmpty
-  if empty
-    then pure []
-    else do
-      instr <- getInstruction
-      rest <- getInstructions
-      pure (instr : rest)
