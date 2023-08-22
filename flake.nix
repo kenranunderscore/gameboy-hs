@@ -8,7 +8,7 @@
 
   outputs = inputs @ {...}:
     inputs.flake-utils.lib.eachDefaultSystem (system: let
-      overlay = final: prev: {haskellPackages = prev.haskell.packages.ghc92;};
+      overlay = final: prev: {haskellPackages = prev.haskell.packages.ghc96;};
       pkgs = import inputs.nixpkgs {
         inherit system;
         overlays = [overlay];
