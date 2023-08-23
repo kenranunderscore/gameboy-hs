@@ -15,15 +15,14 @@ common warnings
 library
   import:           warnings
   exposed-modules:
-    Bios
     Emulator
     Memory
 
   build-depends:
     , array
     , base
-    , binary
     , bytestring
+    , mtl
 
   hs-source-dirs:   src-lib
   default-language: GHC2021
