@@ -7,9 +7,11 @@ import Control.Monad
 import Data.Array (Array)
 import qualified Data.Array as Array
 import Data.Word
-import Data.List
 import qualified Data.ByteString as BS
 import Data.Binary.Get
+
+import Bios
+import Memory
 
 data CPU = CPU
   { a :: Word8
@@ -28,33 +30,24 @@ data CPU = CPU
 initialState :: CPU
 initialState = CPU 0 0 0 0 0 0 0 0 0 0
 
-type Memory = Array Word16 Word8
-
-loadBios :: IO Memory
-loadBios = do
-  let biosPath = "./resources/gb_bios.bin"
-  bs <- BS.readFile biosPath
-  let len = fromIntegral $ BS.length bs
-  when (len /= 256) (fail "unexpected BIOS size")
-  pure $ Array.listArray (0, len - 1) $ BS.unpack bs
-
 fetch :: Memory -> Word16 -> Maybe Op
 fetch mem addr = undefined
 
 run :: IO ()
 run = do
-  bios <- loadBios
   print bios
 
 newtype Op = Op String
   deriving newtype Show
 
+op :: String -> Get Op
 op = pure . Op
 
 getCB :: Get Op
 getCB = getWord8 >>= \case
   0x7c -> op "BIT 7,H"
   0x11 -> op "RL C"
+  unknown -> op $ "CB/UNKNOWN: " <> show unknown
 
 getInstruction :: Get Op
 getInstruction = getWord8 >>= \case
