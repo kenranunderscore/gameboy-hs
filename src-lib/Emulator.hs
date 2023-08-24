@@ -1,30 +1,30 @@
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 
 module Emulator where
 
 import Control.Monad
-import Data.Bits
-import Data.Array ((!))
 import Control.Monad.State.Strict
+import Data.Array ((!))
+import Data.Bits
 
 import Memory
 
 data Registers = Registers
-  { a :: U8
-  , f :: U8
-  , b :: U8
-  , c :: U8
-  , d :: U8
-  , e :: U8
-  , h :: U8
-  , l :: U8
-  , pc :: U16
-  , sp :: U16
-  }
-  deriving stock (Eq)
+    { a :: U8
+    , f :: U8
+    , b :: U8
+    , c :: U8
+    , d :: U8
+    , e :: U8
+    , h :: U8
+    , l :: U8
+    , pc :: U16
+    , sp :: U16
+    }
+    deriving stock (Eq)
 
 combineU8s :: U8 -> U8 -> U16
 combineU8s b1 b2 = (fromIntegral b1 .<<. 8) .|. fromIntegral b2
@@ -39,39 +39,41 @@ getBC :: Registers -> U16
 getBC r = combineU8s r.b r.c
 
 setBC :: Registers -> U16 -> Registers
-setBC r n = let (b1, b2) = splitU16 n in
-  r{b = b1, c = b2} -- TODO: check
+setBC r n =
+    let (b1, b2) = splitU16 n
+    in r{b = b1, c = b2} -- TODO: check
 
 getDE :: Registers -> U16
 getDE r = combineU8s r.d r.e
 
 setDE :: Registers -> U16 -> Registers
-setDE r n = let (b1, b2) = splitU16 n in
-  r{d = b1, e = b2} -- TODO: check
+setDE r n =
+    let (b1, b2) = splitU16 n
+    in r{d = b1, e = b2} -- TODO: check
 
 getHL :: Registers -> U16
 getHL r = combineU8s r.h r.l
 
 setHL :: Registers -> U16 -> Registers
-setHL r n = let (b1, b2) = splitU16 n in
-  r{h = b1, l = b2} -- TODO: check
+setHL r n =
+    let (b1, b2) = splitU16 n
+    in r{h = b1, l = b2} -- TODO: check
 
+{- FOURMOLU_DISABLE -}
 instance Show Registers where
-  show r = mconcat
-    [ "A  = ", toHex r.a, "\n"
-    , "F  = ", toHex r.f, "\n"
-    , "B  = ", toHex r.b, "\n"
-    , "C  = ", toHex r.c
-    , "    BC = ", toHex (getBC r), "\n"
-    , "D  = ", toHex r.d, "\n"
-    , "E  = ", toHex r.e
-    , "    DE = ", toHex (getDE r), "\n"
-    , "H  = ", toHex r.h, "\n"
-    , "L  = ", toHex r.l
-    , "    HL = ", toHex (getHL r), "\n"
-    , "PC = ", toHex r.pc, "\n"
-    , "SP = ", toHex r.sp
-    ]
+    show r = mconcat
+        [ "A  = " , toHex r.a
+        , "\nF  = " , toHex r.f
+        , "\nB  = " , toHex r.b
+        , "\nC  = " , toHex r.c , "    BC = " , toHex (getBC r)
+        , "\nD  = " , toHex r.d
+        , "\nE  = " , toHex r.e , "    DE = " , toHex (getDE r)
+        , "\nH  = " , toHex r.h
+        , "\nL  = " , toHex r.l , "    HL = " , toHex (getHL r)
+        , "\nPC = " , toHex r.pc
+        , "\nSP = " , toHex r.sp
+        ]
+{- FOURMOLU_ENABLE -}
 
 initialRegisters :: Registers
 initialRegisters = Registers 0 0 0 0 0 0 0 0 0 0
@@ -80,65 +82,66 @@ type CPU m = (MonadState Registers m, MonadFail m)
 
 advance :: CPU m => U16 -> m ()
 advance n = do
-  registers <- get
-  put $ registers{pc = registers.pc + n}
+    registers <- get
+    put $ registers{pc = registers.pc + n}
 
 data Instr
-  = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
-  | LD_HL_u16 U16
-  | XOR_A
+    = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
+    | LD_HL_u16 U16
+    | XOR_A
 
 instance Show Instr where
-  show = \case
-    LD_SP_u16 u16 -> "LD SP," <> toHex u16
-    LD_HL_u16 u16 -> "LD HL," <> toHex u16
-    XOR_A -> "XOR A"
+    show = \case
+        LD_SP_u16 u16 -> "LD SP," <> toHex u16
+        LD_HL_u16 u16 -> "LD HL," <> toHex u16
+        XOR_A -> "XOR A"
 
 fetchU16 :: Memory -> U16 -> U16
 fetchU16 mem addr = do
-  let b1 = mem ! (addr + 1) -- little Endian
-      b2 = mem ! addr
-  (fromIntegral b1 .<<. 8) .|. fromIntegral b2
+    let
+        b1 = mem ! (addr + 1) -- little Endian
+        b2 = mem ! addr
+    (fromIntegral b1 .<<. 8) .|. fromIntegral b2
 
-readInstr :: CPU m => Memory -> m Instr
-readInstr mem = do
-  counter <- gets pc
-  case mem ! counter of
-    0x21 -> do
-      let u16 = fetchU16 mem (counter + 1)
-      advance 3
-      pure $ LD_HL_u16 u16
-    0x31 -> do
-      let u16 = fetchU16 mem (counter + 1)
-      advance 3
-      pure $ LD_SP_u16 u16
-    0xaf -> advance 1 >> pure XOR_A
-    b -> fail $ "unknown opcode: " <> showU8 b
+fetch :: CPU m => Memory -> m Instr
+fetch mem = do
+    counter <- gets pc
+    case mem ! counter of
+        0x21 -> do
+            let u16 = fetchU16 mem (counter + 1)
+            advance 3
+            pure $ LD_HL_u16 u16
+        0x31 -> do
+            let u16 = fetchU16 mem (counter + 1)
+            advance 3
+            pure $ LD_SP_u16 u16
+        0xaf -> advance 1 >> pure XOR_A
+        b -> fail $ "unknown opcode: " <> showU8 b
 
 execute :: (MonadIO m, CPU m) => Instr -> m ()
 execute instr = do
-  registers <- get
-  let newRegisters =
-        case instr of
-          XOR_A -> registers{a = registers.a `xor` registers.a}
-          LD_SP_u16 u16 -> registers{sp = u16}
-          LD_HL_u16 u16 -> setHL registers u16
-  liftIO $ print registers
-  put newRegisters
+    registers <- get
+    let newRegisters =
+            case instr of
+                XOR_A -> registers{a = registers.a `xor` registers.a}
+                LD_SP_u16 u16 -> registers{sp = u16}
+                LD_HL_u16 u16 -> setHL registers u16
+    liftIO $ print registers
+    put newRegisters
 
 run :: IO ()
 run = do
-  finalRegisters <- execStateT startup initialRegisters
-  putStrLn "done"
-  print finalRegisters
+    finalRegisters <- execStateT startup initialRegisters
+    putStrLn "done"
+    print finalRegisters
 
 startup :: (MonadIO m, CPU m) => m ()
 startup = loop
   where
     loop = forever $ do
-      instr <- readInstr bios
-      execute instr
-      liftIO $ print instr
+        instr <- fetch bios
+        execute instr
+        liftIO $ print instr
 
 -- getCB :: Get Op
 -- getCB = getWord8 >>= \case

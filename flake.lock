@@ -18,6 +18,22 @@
         "type": "github"
       }
     },
+    "fourmolu": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1692839229,
+        "narHash": "sha256-NuD0oyaQyVHZ21zW4jdPJV44vtOA7Wov4u0mD9PVMo4=",
+        "owner": "fourmolu",
+        "repo": "fourmolu",
+        "rev": "06acbcb4a5cf432c2b02fe53bd1acf650cefcf4a",
+        "type": "github"
+      },
+      "original": {
+        "owner": "fourmolu",
+        "repo": "fourmolu",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1692557222,
@@ -37,6 +53,7 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
+        "fourmolu": "fourmolu",
         "nixpkgs": "nixpkgs"
       }
     },

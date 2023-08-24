@@ -1,12 +1,13 @@
 module Memory where
 
-import Numeric
-import Data.Word
 import Data.Array (Array)
 import qualified Data.Array as Array
+import Data.Word
+import Numeric
 
 type U8 = Word8
 type U16 = Word16
+type Memory = Array Word16 U8
 
 toHex :: Integral a => a -> String
 toHex = ("0x" <>) . flip showHex mempty
@@ -14,7 +15,7 @@ toHex = ("0x" <>) . flip showHex mempty
 showU8 :: U8 -> String
 showU8 = toHex
 
-type Memory = Array Word16 U8
+{- FOURMOLU_DISABLE -}
 
 bios :: Memory
 bios = Array.listArray (0, 255)
@@ -35,3 +36,5 @@ bios = Array.listArray (0, 255)
   , 0x21, 0x04, 0x01, 0x11, 0xa8, 0x00, 0x1a, 0x13, 0xbe, 0x20, 0xfe, 0x23, 0x7d, 0xfe, 0x34, 0x20
   , 0xf5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xfb, 0x86, 0x20, 0xfe, 0x3e, 0x01, 0xe0, 0x50
   ]
+
+{- FOURMOLU_ENABLE -}
