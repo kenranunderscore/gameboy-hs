@@ -32,9 +32,6 @@ combineU8s b1 b2 = (fromIntegral b1 .<<. 8) .|. fromIntegral b2
 splitU16 :: U16 -> (U8, U8)
 splitU16 b = (fromIntegral (b .>>. 8), fromIntegral (b .&. 0xff))
 
--- skip AF for now, as I haven't yet understood it, and I think it's not used
--- similarly to the others
-
 getBC :: Registers -> U16
 getBC r = combineU8s r.b r.c
 
