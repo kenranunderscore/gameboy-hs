@@ -7,7 +7,7 @@ module Emulator where
 
 import Control.Monad
 import Control.Monad.State.Strict
-import Data.Array ((!))
+import Data.Array ((!), (//))
 import Data.Bits
 
 import Memory
@@ -175,20 +175,32 @@ fetchPrefixed mem = do
         s -> fail $ toHex s
 
 execute :: (MonadIO m, CPU m) => Instr -> m ()
-execute instr = do
-    cpuState@CPUState{registers = r, memory = mem} <- get
-    case instr of
-        XOR_A -> modify' (\s -> s{registers = r{a = r.a `xor` r.a}}) -- simply set to 0?
-        LD_SP_u16 u16 -> modify' (\s -> s{registers = r{sp = u16}})
-        LD_HL_u16 u16 -> modify' (\s -> s{registers = setHL s.registers u16})
-        LD_HLminus_A -> pure () -- TODO
-        LD_C_u8 u8 -> modify' (\s -> s{registers = r{c = u8}})
-        LD_A_u8 u8 -> modify' (\s -> s{registers = r{a = u8}})
-        LD_FF00plusC_A -> pure () -- TODO
-        LD_derefHL_A -> pure () -- TODO
-        BIT_7_H -> pure () -- TODO test bit and set flags
-        JR_NZ_i8 i8 -> pure () -- TODO
-        INC_C -> modify' (\s -> s{registers = r{c = r.c + 1}})
+execute = \case
+    XOR_A ->
+        modify' (\s -> s{registers = s.registers{a = 0}})
+    LD_SP_u16 u16 ->
+        modify' (\s -> s{registers = s.registers{sp = u16}})
+    LD_HL_u16 u16 ->
+        modify' (\s -> s{registers = setHL s.registers u16})
+    LD_HLminus_A ->
+        modify'
+            ( \s ->
+                let hl = getHL s.registers
+                in s{registers = setHL s.registers (hl - 1), memory = s.memory // [(hl, s.registers.a)]}
+            )
+    LD_C_u8 u8 ->
+        modify' (\s -> s{registers = s.registers{c = u8}})
+    LD_A_u8 u8 ->
+        modify' (\s -> s{registers = s.registers{a = u8}})
+    LD_FF00plusC_A ->
+        modify' (\s -> s{memory = s.memory // [(0xff00 + fromIntegral s.registers.c, s.registers.a)]})
+    LD_derefHL_A ->
+        modify' (\s -> let hl = getHL s.registers in s{memory = s.memory // [(hl, s.registers.a)]})
+    BIT_7_H ->
+        pure () -- TODO test bit and set flags
+    JR_NZ_i8 i8 ->
+        pure () -- TODO implement flags, then this
+    INC_C -> modify' (\s -> s{registers = s.registers{c = s.registers.c + 1}})
 
 run :: IO ()
 run = do
