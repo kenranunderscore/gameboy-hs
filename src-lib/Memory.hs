@@ -14,9 +14,6 @@ type Memory = Array Word16 U8
 toHex :: Integral a => a -> String
 toHex = ("0x" <>) . flip showHex mempty
 
-showU8 :: U8 -> String
-showU8 = toHex
-
 {- FOURMOLU_DISABLE -}
 
 bios :: Memory
