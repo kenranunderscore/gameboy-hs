@@ -41,7 +41,7 @@ getBC r = combineU8s r.b r.c
 setBC :: Registers -> U16 -> Registers
 setBC r n =
     let (b1, b2) = splitU16 n
-    in r{b = b1, c = b2} -- TODO: check
+    in r{b = b1, c = b2}
 
 getDE :: Registers -> U16
 getDE r = combineU8s r.d r.e
@@ -49,7 +49,7 @@ getDE r = combineU8s r.d r.e
 setDE :: Registers -> U16 -> Registers
 setDE r n =
     let (b1, b2) = splitU16 n
-    in r{d = b1, e = b2} -- TODO: check
+    in r{d = b1, e = b2}
 
 getHL :: Registers -> U16
 getHL r = combineU8s r.h r.l
@@ -57,7 +57,7 @@ getHL r = combineU8s r.h r.l
 setHL :: Registers -> U16 -> Registers
 setHL r n =
     let (b1, b2) = splitU16 n
-    in r{h = b1, l = b2} -- TODO: check
+    in r{h = b1, l = b2}
 
 {- FOURMOLU_DISABLE -}
 instance Show Registers where
