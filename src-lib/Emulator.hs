@@ -89,6 +89,8 @@ data Instr
     = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
     | LD_HL_u16 U16
     | LD_HLminus_A
+    | LD_C_u8 U8
+    | LD_A_u8 U8
     | BIT_7_H
     | JR_NZ_i8 I8
     | XOR_A
@@ -98,12 +100,17 @@ instance Show Instr where
         LD_SP_u16 u16 -> "LD SP," <> toHex u16
         LD_HL_u16 u16 -> "LD HL," <> toHex u16
         LD_HLminus_A -> "LD (HL-),A"
+        LD_C_u8 u8 -> "LD C," <> toHex u8
+        LD_A_u8 u8 -> "LD A," <> toHex u8
         BIT_7_H -> "BIT 7,H"
         JR_NZ_i8 i8 -> "JR NZ," <> show i8
         XOR_A -> "XOR A"
 
+fetchU8 :: Memory -> U16 -> U8
+fetchU8 = (!)
+
 fetchI8 :: Memory -> U16 -> I8
-fetchI8 mem addr = fromIntegral (mem ! addr)
+fetchI8 mem = fromIntegral . fetchU8 mem
 
 fetchU16 :: Memory -> U16 -> U16
 fetchU16 mem addr = do
@@ -117,8 +124,12 @@ fetch mem = do
     counter <- gets pc
     advance 1
     case mem ! counter of
+        0x0e -> do
+            let u8 = fetchU8 mem (counter + 1)
+            advance 1
+            pure $ LD_C_u8 u8
         0x20 -> do
-            let i8 = fetchI8 mem counter
+            let i8 = fetchI8 mem (counter + 1)
             advance 1
             pure $ JR_NZ_i8 i8
         0x21 -> do
@@ -130,6 +141,10 @@ fetch mem = do
             advance 2
             pure $ LD_SP_u16 u16
         0x32 -> pure LD_HLminus_A
+        0x3e -> do
+            let u8 = fetchU8 mem (counter + 1)
+            advance 1
+            pure $ LD_A_u8 u8
         0xaf -> pure XOR_A
         0xcb -> fetchPrefixed mem
         b -> fail $ "unknown opcode: " <> toHex b
@@ -151,6 +166,8 @@ execute instr = do
                 LD_SP_u16 u16 -> registers{sp = u16}
                 LD_HL_u16 u16 -> setHL registers u16
                 LD_HLminus_A -> setHL registers (fromIntegral registers.a - 1)
+                LD_C_u8 u8 -> registers{c = u8}
+                LD_A_u8 u8 -> registers{a = u8}
                 BIT_7_H -> registers -- TODO test bit and set flags
                 JR_NZ_i8 i8 -> registers -- TODO
     liftIO $ print registers
@@ -169,93 +186,3 @@ startup = loop
         instr <- fetch bios
         execute instr
         liftIO $ print instr
-
--- getCB :: Get Op
--- getCB = getWord8 >>= \case
---   0x7c -> op "BIT 7,H"
---   0x11 -> op "RL C"
---   unknown -> op $ "CB/UNKNOWN: " <> show unknown
-
--- getInstruction :: Get Op
--- getInstruction = getWord8 >>= \case
---   0x04 -> op "INC B"
---   0x05 -> op "DEC B"
---   0x06 -> do
---     _ <- getWord8
---     op "LD B,u8"
---   0x0c -> op "INC C"
---   0x0d -> op "DEC C"
---   0x0e -> do
---     _ <- getWord8
---     op "LD C,u8"
---   0x11 -> do
---     _ <- getU16le
---     op "LD DE,u16"
---   0x13 -> op "INC DE"
---   0x15 -> op "DEC D"
---   0x16 -> do
---     _ <- getWord8
---     op "LD D,u8"
---   0x17 -> op "RLA"
---   0x1a -> op "LD A,(DE)"
---   0x1e -> do
---     _ <- getWord8
---     op "LD E,u8"
---   0x18 -> do
---     _ <- getWord8 -- i8
---     op "JR i8"
---   0x1d -> op "DEC E"
---   0x20 -> do
---     _ <- getWord8
---     op "JR NZ,i8"
---   0x21 -> do
---     _ <- getU16le
---     op "LD HL,u16"
---   0x22 -> op "LD (HL+),A"
---   0x23 -> op "INC HL"
---   0x24 -> op "INC H"
---   0x2e -> do
---     _ <- getWord8
---     op "LD L,u8"
---   0x28 -> do
---     _ <- getWord8 -- i8
---     op "JR Z,i8"
---   0x31 -> do
---     _ <- getU16le
---     op "LD SP,u16"
---   0x32 -> do op "LD (HL-),A"
---   0x3d -> op "DEC A"
---   0x3e -> do
---     _ <- getWord8
---     op "LD A,u8"
---   0x4f -> op "LD C,A"
---   0x56 -> op "LD D,(HL)"
---   0x57 -> op "LD D,A"
---   0x67 -> op "LD H,A"
---   0x77 -> op "LD (HL),A"
---   0x7b -> op "LD A,E"
---   0x7c -> op "LD A,H"
---   0x90 -> op "SUB A,B"
---   0xaf -> op "XOR A"
---   0xc1 -> op "POP BC"
---   0xc5 -> op "PUSH BC"
---   0xc9 -> op "RET"
---   0xcb -> getCB
---   0xcd -> do
---     _ <- getU16le
---     op "CALL u16"
---   0xe0 -> do
---     _ <- getWord8
---     op "LD (FF00+u8,A)"
---   0xe2 ->
---     op "LD (FF00+C,A)"
---   0xea -> do
---     _ <- getU16le
---     op "LD (u16),A"
---   0xf0 -> do
---     _ <- getWord8
---     op "LD A,(FF00+u8)"
---   0xfe -> do
---     _ <- getWord8
---     op "CP A,u8"
---   unknown -> op $ "UNKNOWN: " <> show unknown
