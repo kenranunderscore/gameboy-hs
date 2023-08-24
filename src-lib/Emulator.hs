@@ -88,13 +88,22 @@ advance n = do
 data Instr
     = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
     | LD_HL_u16 U16
+    | LD_HLminus_A
+    | BIT_7_H
+    | JR_NZ_i8 I8
     | XOR_A
 
 instance Show Instr where
     show = \case
         LD_SP_u16 u16 -> "LD SP," <> toHex u16
         LD_HL_u16 u16 -> "LD HL," <> toHex u16
+        LD_HLminus_A -> "LD (HL-),A"
+        BIT_7_H -> "BIT 7,H"
+        JR_NZ_i8 i8 -> "JR NZ," <> show i8
         XOR_A -> "XOR A"
+
+fetchI8 :: Memory -> U16 -> I8
+fetchI8 mem addr = fromIntegral (mem ! addr)
 
 fetchU16 :: Memory -> U16 -> U16
 fetchU16 mem addr = do
@@ -106,17 +115,32 @@ fetchU16 mem addr = do
 fetch :: CPU m => Memory -> m Instr
 fetch mem = do
     counter <- gets pc
+    advance 1
     case mem ! counter of
+        0x20 -> do
+            let i8 = fetchI8 mem counter
+            advance 1
+            pure $ JR_NZ_i8 i8
         0x21 -> do
             let u16 = fetchU16 mem (counter + 1)
-            advance 3
+            advance 2
             pure $ LD_HL_u16 u16
         0x31 -> do
             let u16 = fetchU16 mem (counter + 1)
-            advance 3
+            advance 2
             pure $ LD_SP_u16 u16
-        0xaf -> advance 1 >> pure XOR_A
-        b -> fail $ "unknown opcode: " <> showU8 b
+        0x32 -> pure LD_HLminus_A
+        0xaf -> pure XOR_A
+        0xcb -> fetchPrefixed mem
+        b -> fail $ "unknown opcode: " <> toHex b
+
+fetchPrefixed :: CPU m => Memory -> m Instr
+fetchPrefixed mem = do
+    byte <- (mem !) <$> gets pc
+    advance 1
+    case byte of
+        0x7c -> pure BIT_7_H
+        s -> fail $ toHex s
 
 execute :: (MonadIO m, CPU m) => Instr -> m ()
 execute instr = do
@@ -126,6 +150,9 @@ execute instr = do
                 XOR_A -> registers{a = registers.a `xor` registers.a}
                 LD_SP_u16 u16 -> registers{sp = u16}
                 LD_HL_u16 u16 -> setHL registers u16
+                LD_HLminus_A -> setHL registers (fromIntegral registers.a - 1)
+                BIT_7_H -> registers -- TODO test bit and set flags
+                JR_NZ_i8 i8 -> registers -- TODO
     liftIO $ print registers
     put newRegisters
 
