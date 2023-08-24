@@ -88,9 +88,12 @@ data Instr
     | LD_HLminus_A
     | LD_C_u8 U8
     | LD_A_u8 U8
+    | LD_FF00plusC_A
+    | LD_derefHL_A
     | BIT_7_H
     | JR_NZ_i8 I8
     | XOR_A
+    | INC_C
 
 instance Show Instr where
     show = \case
@@ -99,9 +102,12 @@ instance Show Instr where
         LD_HLminus_A -> "LD (HL-),A"
         LD_C_u8 u8 -> "LD C," <> toHex u8
         LD_A_u8 u8 -> "LD A," <> toHex u8
+        LD_FF00plusC_A -> "LD ($ff00+C,A)"
+        LD_derefHL_A -> "LD (HL),A"
         BIT_7_H -> "BIT 7,H"
         JR_NZ_i8 i8 -> "JR NZ," <> show i8
         XOR_A -> "XOR A"
+        INC_C -> "INC C"
 
 fetchU8 :: Memory -> U16 -> U8
 fetchU8 = (!)
@@ -121,6 +127,7 @@ fetch mem = do
     counter <- gets pc
     advance 1
     case mem ! counter of
+        0x0c -> pure INC_C
         0x0e -> do
             let u8 = fetchU8 mem (counter + 1)
             advance 1
@@ -142,8 +149,10 @@ fetch mem = do
             let u8 = fetchU8 mem (counter + 1)
             advance 1
             pure $ LD_A_u8 u8
+        0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
         0xcb -> fetchPrefixed mem
+        0xe2 -> pure LD_FF00plusC_A
         b -> fail $ "unknown opcode: " <> toHex b
 
 fetchPrefixed :: CPU m => Memory -> m Instr
@@ -162,11 +171,14 @@ execute instr = do
                 XOR_A -> registers{a = registers.a `xor` registers.a}
                 LD_SP_u16 u16 -> registers{sp = u16}
                 LD_HL_u16 u16 -> setHL registers u16
-                LD_HLminus_A -> setHL registers (fromIntegral registers.a - 1)
+                LD_HLminus_A -> registers -- TODO
                 LD_C_u8 u8 -> registers{c = u8}
                 LD_A_u8 u8 -> registers{a = u8}
+                LD_FF00plusC_A -> registers -- TODO
+                LD_derefHL_A -> registers -- TODO
                 BIT_7_H -> registers -- TODO test bit and set flags
                 JR_NZ_i8 i8 -> registers -- TODO
+                INC_C -> registers{c = registers.c + 1}
     liftIO $ print registers
     put newRegisters
 
