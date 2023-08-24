@@ -72,15 +72,26 @@ instance Show Registers where
         ]
 {- FOURMOLU_ENABLE -}
 
-initialRegisters :: Registers
-initialRegisters = Registers 0 0 0 0 0 0 0 0 0 0xfffe
+data CPUState = CPUState
+    { registers :: Registers
+    , memory :: Memory
+    }
+    deriving stock (Show)
 
-type CPU m = (MonadState Registers m, MonadFail m)
+programCounter :: CPUState -> U16
+programCounter = (.registers.pc)
+
+mkInitialState :: Memory -> CPUState
+mkInitialState mem = CPUState initialRegisters mem
+  where
+    initialRegisters = Registers 0 0 0 0 0 0 0 0 0 0xfffe
+
+type CPU m = (MonadState CPUState m, MonadFail m)
 
 advance :: CPU m => U16 -> m ()
-advance n = do
-    registers <- get
-    put $ registers{pc = registers.pc + n}
+advance n =
+    modify'
+        (\s -> s{registers = s.registers{pc = s.registers.pc + n}})
 
 data Instr
     = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
@@ -124,7 +135,7 @@ fetchU16 mem addr = do
 
 fetch :: CPU m => Memory -> m Instr
 fetch mem = do
-    counter <- gets pc
+    counter <- gets programCounter
     advance 1
     case mem ! counter of
         0x0c -> pure INC_C
@@ -157,7 +168,7 @@ fetch mem = do
 
 fetchPrefixed :: CPU m => Memory -> m Instr
 fetchPrefixed mem = do
-    byte <- (mem !) <$> gets pc
+    byte <- (mem !) <$> gets (.registers.pc)
     advance 1
     case byte of
         0x7c -> pure BIT_7_H
@@ -165,26 +176,23 @@ fetchPrefixed mem = do
 
 execute :: (MonadIO m, CPU m) => Instr -> m ()
 execute instr = do
-    registers <- get
-    let newRegisters =
-            case instr of
-                XOR_A -> registers{a = registers.a `xor` registers.a}
-                LD_SP_u16 u16 -> registers{sp = u16}
-                LD_HL_u16 u16 -> setHL registers u16
-                LD_HLminus_A -> registers -- TODO
-                LD_C_u8 u8 -> registers{c = u8}
-                LD_A_u8 u8 -> registers{a = u8}
-                LD_FF00plusC_A -> registers -- TODO
-                LD_derefHL_A -> registers -- TODO
-                BIT_7_H -> registers -- TODO test bit and set flags
-                JR_NZ_i8 i8 -> registers -- TODO
-                INC_C -> registers{c = registers.c + 1}
-    liftIO $ print registers
-    put newRegisters
+    cpuState@CPUState{registers = r, memory = mem} <- get
+    case instr of
+        XOR_A -> modify' (\s -> s{registers = r{a = r.a `xor` r.a}}) -- simply set to 0?
+        LD_SP_u16 u16 -> modify' (\s -> s{registers = r{sp = u16}})
+        LD_HL_u16 u16 -> modify' (\s -> s{registers = setHL s.registers u16})
+        LD_HLminus_A -> pure () -- TODO
+        LD_C_u8 u8 -> modify' (\s -> s{registers = r{c = u8}})
+        LD_A_u8 u8 -> modify' (\s -> s{registers = r{a = u8}})
+        LD_FF00plusC_A -> pure () -- TODO
+        LD_derefHL_A -> pure () -- TODO
+        BIT_7_H -> pure () -- TODO test bit and set flags
+        JR_NZ_i8 i8 -> pure () -- TODO
+        INC_C -> modify' (\s -> s{registers = r{c = r.c + 1}})
 
 run :: IO ()
 run = do
-    finalRegisters <- execStateT startup initialRegisters
+    finalRegisters <- execStateT startup (mkInitialState bios)
     putStrLn "done"
     print finalRegisters
 
@@ -194,4 +202,5 @@ startup = loop
     loop = forever $ do
         instr <- fetch bios
         execute instr
-        liftIO $ print instr
+        pc <- gets programCounter
+        liftIO . putStrLn $ toHex pc <> " : " <> show instr
