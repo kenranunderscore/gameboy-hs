@@ -73,7 +73,7 @@ instance Show Registers where
 {- FOURMOLU_ENABLE -}
 
 initialRegisters :: Registers
-initialRegisters = Registers 0 0 0 0 0 0 0 0 0 0
+initialRegisters = Registers 0 0 0 0 0 0 0 0 0 0xfffe
 
 type CPU m = (MonadState Registers m, MonadFail m)
 
