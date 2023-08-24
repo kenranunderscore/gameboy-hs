@@ -5,15 +5,16 @@ import Data.Word
 import Data.Array (Array)
 import qualified Data.Array as Array
 
-type Byte = Word8
+type U8 = Word8
+type U16 = Word16
 
 toHex :: Integral a => a -> String
 toHex = ("0x" <>) . flip showHex mempty
 
-showByte :: Byte -> String
-showByte = toHex
+showU8 :: U8 -> String
+showU8 = toHex
 
-type Memory = Array Word16 Byte
+type Memory = Array Word16 U8
 
 bios :: Memory
 bios = Array.listArray (0, 255)

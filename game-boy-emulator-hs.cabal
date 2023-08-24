@@ -46,3 +46,5 @@ test-suite game-boy-emulator-hs-test
   build-depends:
     , base
     , game-boy-emulator-hs
+    , tasty
+    , tasty-hunit

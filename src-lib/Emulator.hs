@@ -3,61 +3,74 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Emulator (run) where
+module Emulator where
 
 import Control.Monad
 import Data.Bits
 import Data.Array ((!))
-import Data.Word
 import Control.Monad.State.Strict
 
 import Memory
 
 data Registers = Registers
-  { a :: Byte
-  , f :: Byte
-  , b :: Byte
-  , c :: Byte
-  , d :: Byte
-  , e :: Byte
-  , h :: Byte
-  , l :: Byte
-  , pc :: Word16
-  , sp :: Word16
+  { a :: U8
+  , f :: U8
+  , b :: U8
+  , c :: U8
+  , d :: U8
+  , e :: U8
+  , h :: U8
+  , l :: U8
+  , pc :: U16
+  , sp :: U16
   }
   deriving stock (Eq)
 
-combineBytes :: Byte -> Byte -> Word16
-combineBytes b1 b2 = (fromIntegral b1 .<<. 8) .|. fromIntegral b2
+combineU8s :: U8 -> U8 -> U16
+combineU8s b1 b2 = (fromIntegral b1 .<<. 8) .|. fromIntegral b2
 
-af :: Registers -> Word16
-af r = combineBytes r.a r.f
+splitU16 :: U16 -> (U8, U8)
+splitU16 b = (fromIntegral (b .>>. 8), fromIntegral (b .&. 0xff))
 
-bc :: Registers -> Word16
-bc r = combineBytes r.b r.c
+-- skip AF for now, as I haven't yet understood it, and I think it's not used
+-- similarly to the others
 
-de :: Registers -> Word16
-de r = combineBytes r.d r.e
+getBC :: Registers -> U16
+getBC r = combineU8s r.b r.c
 
-hl :: Registers -> Word16
-hl r = combineBytes r.h r.l
+setBC :: Registers -> U16 -> Registers
+setBC r n = let (b1, b2) = splitU16 n in
+  r{b = b1, c = b2} -- TODO: check
+
+getDE :: Registers -> U16
+getDE r = combineU8s r.d r.e
+
+setDE :: Registers -> U16 -> Registers
+setDE r n = let (b1, b2) = splitU16 n in
+  r{d = b1, e = b2} -- TODO: check
+
+getHL :: Registers -> U16
+getHL r = combineU8s r.h r.l
+
+setHL :: Registers -> U16 -> Registers
+setHL r n = let (b1, b2) = splitU16 n in
+  r{h = b1, l = b2} -- TODO: check
 
 instance Show Registers where
   show r = mconcat
     [ "A  = ", toHex r.a, "\n"
-    , "F  = ", toHex r.f
-    , "    AF = ", toHex (af r), "\n"
+    , "F  = ", toHex r.f, "\n"
     , "B  = ", toHex r.b, "\n"
     , "C  = ", toHex r.c
-    , "    BC = ", toHex (bc r), "\n"
+    , "    BC = ", toHex (getBC r), "\n"
     , "D  = ", toHex r.d, "\n"
     , "E  = ", toHex r.e
-    , "    DE = ", toHex (de r), "\n"
+    , "    DE = ", toHex (getDE r), "\n"
     , "H  = ", toHex r.h, "\n"
     , "L  = ", toHex r.l
-    , "    HL = ", toHex (hl r), "\n"
+    , "    HL = ", toHex (getHL r), "\n"
     , "PC = ", toHex r.pc, "\n"
-    , "SP = ", toHex r.sp, "\n"
+    , "SP = ", toHex r.sp
     ]
 
 initialRegisters :: Registers
@@ -65,14 +78,14 @@ initialRegisters = Registers 0 0 0 0 0 0 0 0 0 0
 
 type CPU m = (MonadState Registers m, MonadFail m)
 
-advance :: CPU m => Word16 -> m ()
+advance :: CPU m => U16 -> m ()
 advance n = do
   registers <- get
   put $ registers{pc = registers.pc + n}
 
 data Instr
-  = LD_SP_u16 Word16 -- TODO: replace flat instructions with a tree
-  | LD_HL_u16 Word16
+  = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
+  | LD_HL_u16 U16
   | XOR_A
 
 instance Show Instr where
@@ -81,7 +94,7 @@ instance Show Instr where
     LD_HL_u16 u16 -> "LD HL," <> toHex u16
     XOR_A -> "XOR A"
 
-fetchU16 :: Memory -> Word16 -> Word16
+fetchU16 :: Memory -> U16 -> U16
 fetchU16 mem addr = do
   let b1 = mem ! (addr + 1) -- little Endian
       b2 = mem ! addr
@@ -100,7 +113,7 @@ readInstr mem = do
       advance 3
       pure $ LD_SP_u16 u16
     0xaf -> advance 1 >> pure XOR_A
-    b -> fail $ "unknown instruction byte: " <> showByte b
+    b -> fail $ "unknown opcode: " <> showU8 b
 
 execute :: (MonadIO m, CPU m) => Instr -> m ()
 execute instr = do
@@ -108,8 +121,8 @@ execute instr = do
   let newRegisters =
         case instr of
           XOR_A -> registers{a = registers.a `xor` registers.a}
-          LD_SP_u16 u16 -> registers -- TODO: implement
-          LD_HL_u16 u16 -> registers -- TODO: implement
+          LD_SP_u16 u16 -> registers{sp = u16}
+          LD_HL_u16 u16 -> setHL registers u16
   liftIO $ print registers
   put newRegisters
 
@@ -146,7 +159,7 @@ startup = loop
 --     _ <- getWord8
 --     op "LD C,u8"
 --   0x11 -> do
---     _ <- getWord16le
+--     _ <- getU16le
 --     op "LD DE,u16"
 --   0x13 -> op "INC DE"
 --   0x15 -> op "DEC D"
@@ -166,7 +179,7 @@ startup = loop
 --     _ <- getWord8
 --     op "JR NZ,i8"
 --   0x21 -> do
---     _ <- getWord16le
+--     _ <- getU16le
 --     op "LD HL,u16"
 --   0x22 -> op "LD (HL+),A"
 --   0x23 -> op "INC HL"
@@ -178,7 +191,7 @@ startup = loop
 --     _ <- getWord8 -- i8
 --     op "JR Z,i8"
 --   0x31 -> do
---     _ <- getWord16le
+--     _ <- getU16le
 --     op "LD SP,u16"
 --   0x32 -> do op "LD (HL-),A"
 --   0x3d -> op "DEC A"
@@ -199,7 +212,7 @@ startup = loop
 --   0xc9 -> op "RET"
 --   0xcb -> getCB
 --   0xcd -> do
---     _ <- getWord16le
+--     _ <- getU16le
 --     op "CALL u16"
 --   0xe0 -> do
 --     _ <- getWord8
@@ -207,7 +220,7 @@ startup = loop
 --   0xe2 ->
 --     op "LD (FF00+C,A)"
 --   0xea -> do
---     _ <- getWord16le
+--     _ <- getU16le
 --     op "LD (u16),A"
 --   0xf0 -> do
 --     _ <- getWord8
