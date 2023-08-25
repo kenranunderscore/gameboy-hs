@@ -109,6 +109,9 @@ data CPUState = CPUState
 programCounter :: CPUState -> U16
 programCounter = (.registers.pc)
 
+stackPointer :: CPUState -> U16
+stackPointer = (.registers.sp)
+
 mkInitialState :: Memory -> CPUState
 mkInitialState mem = CPUState initialRegisters mem
   where
@@ -136,7 +139,6 @@ advance n =
 data Instr
     = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
     | LD_HL_u16 U16
-    | LD_HLminus_A
     | LD_A_u8 U8
     | LD_A_derefDE
     | LD_B_A
@@ -147,18 +149,27 @@ data Instr
     | LD_FF00plusC_A
     | LD_FF00plusU8_A U8
     | LD_derefHL_A
+    | LD_HLminus_A
+    | LD_HLplus_A
     | BIT_7_H
     | JR_NZ_i8 I8
     | XOR_A
     | INC_C
+    | INC_HL
+    | DEC_B
     | CALL U16
     | PUSH_BC
+    | POP_BC
+    | RLA
+    | RL_C
 
 instance Show Instr where
     show = \case
         LD_SP_u16 u16 -> "LD SP," <> toHex u16
         LD_HL_u16 u16 -> "LD HL," <> toHex u16
+        LD_derefHL_A -> "LD (HL),A"
         LD_HLminus_A -> "LD (HL-),A"
+        LD_HLplus_A -> "LD (HL+),A"
         LD_A_u8 u8 -> "LD A," <> toHex u8
         LD_A_derefDE -> "LD A,(DE)"
         LD_B_A -> "LD B,A"
@@ -168,13 +179,17 @@ instance Show Instr where
         LD_DE_u16 u16 -> "LD DE," <> toHex u16
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
         LD_FF00plusU8_A u8 -> "LD ($ff00+$" <> toHex u8 <> ",A)"
-        LD_derefHL_A -> "LD (HL),A"
         BIT_7_H -> "BIT 7,H"
         JR_NZ_i8 i8 -> "JR NZ," <> show i8
         XOR_A -> "XOR A"
         INC_C -> "INC C"
+        INC_HL -> "INC HL"
+        DEC_B -> "DEC B"
         CALL u16 -> "CALL " <> toHex u16
         PUSH_BC -> "PUSH BC"
+        POP_BC -> "POP BC"
+        RLA -> "RLA"
+        RL_C -> "RL C"
 
 fetchU8 :: Memory -> U16 -> U8
 fetchU8 = (!)
@@ -195,6 +210,7 @@ fetch = do
     mem <- gets memory
     advance 1
     case mem ! counter of
+        0x05 -> pure DEC_B
         0x06 -> do
             let u8 = fetchU8 mem (counter + 1)
             advance 1
@@ -208,6 +224,7 @@ fetch = do
             let u16 = fetchU16 mem (counter + 1)
             advance 2
             pure $ LD_DE_u16 u16
+        0x17 -> pure RLA
         0x1a -> pure LD_A_derefDE
         0x20 -> do
             let i8 = fetchI8 mem (counter + 1)
@@ -217,6 +234,8 @@ fetch = do
             let u16 = fetchU16 mem (counter + 1)
             advance 2
             pure $ LD_HL_u16 u16
+        0x22 -> pure LD_HLplus_A
+        0x23 -> pure INC_HL
         0x31 -> do
             let u16 = fetchU16 mem (counter + 1)
             advance 2
@@ -230,6 +249,7 @@ fetch = do
         0x4f -> pure LD_C_A
         0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
+        0xc1 -> pure POP_BC
         0xc5 -> pure PUSH_BC
         0xcb -> fetchPrefixed mem
         0xcd -> do
@@ -248,19 +268,36 @@ fetchPrefixed mem = do
     byte <- (mem !) <$> gets (.registers.pc)
     advance 1
     case byte of
+        0x11 -> pure RL_C
         0x7c -> pure BIT_7_H
         s -> fail $ "unknown prefixed byte: " <> toHex s
 
-push :: CPU m => U16 -> m ()
-push u16 = modify' $ \s ->
-    let
-        sp' = s.registers.sp - 2
-        (hi, lo) = splitU16 u16
-    in
-        s
-            { registers = s.registers{sp = sp'}
-            , memory = s.memory // [(sp', lo), (sp' + 1, hi)] -- TODO: check
-            }
+push :: CPU m => U8 -> m ()
+push n = modify' $ \s ->
+    -- TODO: check SP: is it really correct to point at the last value instead
+    -- of "before" it?  shouldn't I insert at the old SP value?
+    let sp' = s.registers.pc - 1
+    in s
+        { registers = s.registers{sp = sp'}
+        , memory = s.memory // [(sp', n)]
+        }
+
+push2 :: CPU m => U16 -> m ()
+push2 n = do
+    let (hi, lo) = splitU16 n
+    -- TODO: correct order? correct SP?
+    push hi
+    push lo
+
+pop :: CPU m => m U8
+pop = do
+    -- TODO: do I have to zero the popped memory location?
+    s <- get
+    put s{registers = s.registers{sp = s.registers.sp + 1}}
+    pure (s.memory ! s.registers.sp)
+
+pop2 :: CPU m => m U16
+pop2 = combineU8s <$> pop <*> pop
 
 execute :: (MonadIO m, CPU m) => Instr -> m ()
 execute = \case
@@ -272,7 +309,16 @@ execute = \case
         s{registers = setHL s.registers u16}
     LD_HLminus_A -> modify' $ \s ->
         let hl = getHL s.registers
-        in s{registers = setHL s.registers (hl - 1), memory = s.memory // [(hl, s.registers.a)]}
+        in s
+            { registers = setHL s.registers (hl - 1)
+            , memory = s.memory // [(hl, s.registers.a)]
+            }
+    LD_HLplus_A -> modify' $ \s ->
+        let hl = getHL s.registers
+        in s
+            { registers = setHL s.registers (hl + 1)
+            , memory = s.memory // [(hl, s.registers.a)]
+            }
     LD_A_derefDE -> modify' $ \s ->
         s{registers = s.registers{a = s.memory ! getDE s.registers}}
     LD_A_u8 u8 -> modify' $ \s ->
@@ -305,12 +351,21 @@ execute = \case
             else s
     INC_C -> modify' $ \s ->
         s{registers = s.registers{c = s.registers.c + 1}}
+    INC_HL -> modify' $ \s ->
+        s{registers = setHL s.registers (getHL s.registers + 1)}
+    DEC_B -> modify' $ \s ->
+        s{registers = s.registers{b = s.registers.b - 1}}
     CALL u16 -> do
-        push u16
+        push2 u16
         modify' $ \s -> s{registers = s.registers{pc = u16}}
     PUSH_BC -> do
         bc <- gets (getBC . registers)
-        push bc
+        push2 bc
+    POP_BC -> do
+        u16 <- pop2
+        modify' $ \s -> s{registers = setBC s.registers u16}
+    RLA -> pure () -- TODO: implement rotations
+    RL_C -> pure () -- TODO: implement rotations
 
 run :: IO ()
 run = do
