@@ -4,15 +4,11 @@ import Data.Array (Array)
 import qualified Data.Array as Array
 import Data.Int
 import Data.Word
-import Numeric
 
 type U8 = Word8
 type I8 = Int8
 type U16 = Word16
 type Memory = Array Word16 U8
-
-toHex :: Integral a => a -> String
-toHex = ("0x" <>) . flip showHex mempty
 
 {- FOURMOLU_DISABLE -}
 

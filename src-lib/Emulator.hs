@@ -10,8 +10,12 @@ import Control.Monad.State.Strict
 import Data.Array ((!), (//))
 import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
 import qualified Data.Bits as Bits
+import qualified Numeric
 
 import Memory
+
+toHex :: Integral a => a -> String
+toHex n = "$" <> flip Numeric.showHex mempty n
 
 data Registers = Registers
     { a :: U8
