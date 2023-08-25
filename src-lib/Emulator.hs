@@ -149,6 +149,7 @@ data Instr
     | JR_NZ_i8 I8
     | XOR_A
     | INC_C
+    | CALL U16
 
 instance Show Instr where
     show = \case
@@ -167,6 +168,7 @@ instance Show Instr where
         JR_NZ_i8 i8 -> "JR NZ," <> show i8
         XOR_A -> "XOR A"
         INC_C -> "INC C"
+        CALL u16 -> "CALL " <> toHex u16
 
 fetchU8 :: Memory -> U16 -> U8
 fetchU8 = (!)
@@ -217,8 +219,13 @@ fetch mem = do
         0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
         0xcb -> fetchPrefixed mem
+        0xcd -> do
+            let u16 = fetchU16 mem (counter + 1)
+            advance 2
+            pure $ CALL u16
         0xe0 -> do
             let u8 = fetchU8 mem (counter + 1)
+            advance 1
             pure $ LD_FF00plusU8_A u8
         0xe2 -> pure LD_FF00plusC_A
         b -> fail $ "unknown opcode: " <> toHex b
@@ -270,6 +277,9 @@ execute = \case
             else s
     INC_C -> modify' $ \s ->
         s{registers = s.registers{c = s.registers.c + 1}}
+    CALL u16 -> modify' $ \s ->
+        -- TODO: push instruction address onto stack
+        s{registers = s.registers{pc = u16}}
 
 run :: IO ()
 run = do
