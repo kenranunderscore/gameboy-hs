@@ -183,9 +183,10 @@ fetchU16 mem addr = do
         b2 = mem ! addr
     (fromIntegral b1 .<<. 8) .|. fromIntegral b2
 
-fetch :: CPU m => Memory -> m Instr
-fetch mem = do
+fetch :: CPU m => m Instr
+fetch = do
     counter <- gets programCounter
+    mem <- gets memory
     advance 1
     case mem ! counter of
         0x0c -> pure INC_C
@@ -291,7 +292,7 @@ startup :: (MonadIO m, CPU m) => m ()
 startup = loop
   where
     loop = forever $ do
-        instr <- fetch bios
+        instr <- fetch
         execute instr
         pc <- gets programCounter
         liftIO . putStrLn $ toHex pc <> " : " <> show instr
