@@ -8,23 +8,46 @@ module Emulator where
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.Array ((!), (//))
-import Data.Bits
+import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
+import qualified Data.Bits as Bits
 
 import Memory
 
 data Registers = Registers
     { a :: U8
-    , f :: U8
     , b :: U8
     , c :: U8
     , d :: U8
     , e :: U8
     , h :: U8
     , l :: U8
+    , -- TODO: benchmark later whether a simple Haskell value can be used here
+      -- to make everything more readable
+      f :: U8
     , pc :: U16
     , sp :: U16
     }
     deriving stock (Eq)
+
+-- | Lower 4 bits of the F register.
+data Flag = Zero | Negative | HalfCarry | Carry
+    deriving (Show)
+
+modifyFlag' :: Flag -> Bool -> Registers -> Registers
+modifyFlag' flag on r =
+    case flag of
+        Zero -> r{f = change r.f 7}
+        Negative -> r{f = change r.f 6}
+        HalfCarry -> r{f = change r.f 5}
+        Carry -> r{f = change r.f 4}
+  where
+    change = if on then Bits.setBit else Bits.clearBit
+
+setFlag' :: Flag -> Registers -> Registers
+setFlag' flag r = modifyFlag' flag True r
+
+clearFlag' :: Flag -> Registers -> Registers
+clearFlag' flag r = modifyFlag' flag False r
 
 combineU8s :: U8 -> U8 -> U16
 combineU8s b1 b2 = (fromIntegral b1 .<<. 8) .|. fromIntegral b2
@@ -84,7 +107,19 @@ programCounter = (.registers.pc)
 mkInitialState :: Memory -> CPUState
 mkInitialState mem = CPUState initialRegisters mem
   where
-    initialRegisters = Registers 0 0 0 0 0 0 0 0 0 0xfffe
+    initialRegisters =
+        Registers
+            { a = 0
+            , b = 0
+            , c = 0
+            , d = 0
+            , e = 0
+            , h = 0
+            , l = 0
+            , f = 0
+            , pc = 0
+            , sp = 0xfffe
+            }
 
 type CPU m = (MonadState CPUState m, MonadFail m)
 
@@ -176,31 +211,33 @@ fetchPrefixed mem = do
 
 execute :: (MonadIO m, CPU m) => Instr -> m ()
 execute = \case
-    XOR_A ->
-        modify' (\s -> s{registers = s.registers{a = 0}})
-    LD_SP_u16 u16 ->
-        modify' (\s -> s{registers = s.registers{sp = u16}})
-    LD_HL_u16 u16 ->
-        modify' (\s -> s{registers = setHL s.registers u16})
-    LD_HLminus_A ->
-        modify'
-            ( \s ->
-                let hl = getHL s.registers
-                in s{registers = setHL s.registers (hl - 1), memory = s.memory // [(hl, s.registers.a)]}
-            )
-    LD_C_u8 u8 ->
-        modify' (\s -> s{registers = s.registers{c = u8}})
-    LD_A_u8 u8 ->
-        modify' (\s -> s{registers = s.registers{a = u8}})
-    LD_FF00plusC_A ->
-        modify' (\s -> s{memory = s.memory // [(0xff00 + fromIntegral s.registers.c, s.registers.a)]})
-    LD_derefHL_A ->
-        modify' (\s -> let hl = getHL s.registers in s{memory = s.memory // [(hl, s.registers.a)]})
-    BIT_7_H ->
-        pure () -- TODO test bit and set flags
-    JR_NZ_i8 i8 ->
+    XOR_A -> modify' $ \s ->
+        s{registers = s.registers{a = 0}}
+    LD_SP_u16 u16 -> modify' $ \s ->
+        s{registers = s.registers{sp = u16}}
+    LD_HL_u16 u16 -> modify' $ \s ->
+        s{registers = setHL s.registers u16}
+    LD_HLminus_A -> modify' $ \s ->
+        let hl = getHL s.registers
+        in s{registers = setHL s.registers (hl - 1), memory = s.memory // [(hl, s.registers.a)]}
+    LD_C_u8 u8 -> modify' $ \s ->
+        s{registers = s.registers{c = u8}}
+    LD_A_u8 u8 -> modify' $ \s ->
+        s{registers = s.registers{a = u8}}
+    LD_FF00plusC_A -> modify' $ \s ->
+        s{memory = s.memory // [(0xff00 + fromIntegral s.registers.c, s.registers.a)]}
+    LD_derefHL_A -> modify' $ \s ->
+        let hl = getHL s.registers in s{memory = s.memory // [(hl, s.registers.a)]}
+    BIT_7_H -> modify' $ \s ->
+        let
+            r' = setFlag' HalfCarry $ clearFlag' Negative s.registers
+            bitIsSet = Bits.testBit s.registers.h 7
+        in
+            s{registers = modifyFlag' Zero (not bitIsSet) r'}
+    JR_NZ_i8 _i8 ->
         pure () -- TODO implement flags, then this
-    INC_C -> modify' (\s -> s{registers = s.registers{c = s.registers.c + 1}})
+    INC_C -> modify' $ \s ->
+        s{registers = s.registers{c = s.registers.c + 1}}
 
 run :: IO ()
 run = do
