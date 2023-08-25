@@ -239,6 +239,17 @@ fetchPrefixed mem = do
         0x7c -> pure BIT_7_H
         s -> fail $ toHex s
 
+push :: CPU m => U16 -> m ()
+push u16 = modify' $ \s ->
+    let
+        sp' = s.registers.sp - 2
+        (hi, lo) = splitU16 u16
+    in
+        s
+            { registers = s.registers{sp = sp'}
+            , memory = s.memory // [(sp', lo), (sp', hi)]
+            }
+
 execute :: (MonadIO m, CPU m) => Instr -> m ()
 execute = \case
     XOR_A -> modify' $ \s ->
@@ -278,9 +289,9 @@ execute = \case
             else s
     INC_C -> modify' $ \s ->
         s{registers = s.registers{c = s.registers.c + 1}}
-    CALL u16 -> modify' $ \s ->
-        -- TODO: push instruction address onto stack
-        s{registers = s.registers{pc = u16}}
+    CALL u16 -> do
+        push u16
+        modify' $ \s -> s{registers = s.registers{pc = u16}}
 
 run :: IO ()
 run = do
