@@ -33,21 +33,26 @@ data Registers = Registers
 data Flag = Zero | Negative | HalfCarry | Carry
     deriving (Show)
 
+flagBit :: Flag -> Int
+flagBit = \case
+    Zero -> 7
+    Negative -> 6
+    HalfCarry -> 5
+    Carry -> 4
+
 modifyFlag' :: Flag -> Bool -> Registers -> Registers
 modifyFlag' flag on r =
-    case flag of
-        Zero -> r{f = change r.f 7}
-        Negative -> r{f = change r.f 6}
-        HalfCarry -> r{f = change r.f 5}
-        Carry -> r{f = change r.f 4}
-  where
-    change = if on then Bits.setBit else Bits.clearBit
+    let change = if on then Bits.setBit else Bits.clearBit
+    in r{f = change r.f (flagBit flag)}
 
 setFlag' :: Flag -> Registers -> Registers
 setFlag' flag r = modifyFlag' flag True r
 
 clearFlag' :: Flag -> Registers -> Registers
 clearFlag' flag r = modifyFlag' flag False r
+
+hasFlag' :: Flag -> Registers -> Bool
+hasFlag' flag r = Bits.testBit r.f (flagBit flag)
 
 combineU8s :: U8 -> U8 -> U16
 combineU8s b1 b2 = (fromIntegral b1 .<<. 8) .|. fromIntegral b2
