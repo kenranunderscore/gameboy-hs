@@ -140,6 +140,8 @@ data Instr
     | LD_A_u8 U8
     | LD_A_derefDE
     | LD_B_A
+    | LD_B_u8 U8
+    | LD_C_A
     | LD_C_u8 U8
     | LD_DE_u16 U16
     | LD_FF00plusC_A
@@ -150,6 +152,7 @@ data Instr
     | XOR_A
     | INC_C
     | CALL U16
+    | PUSH_BC
 
 instance Show Instr where
     show = \case
@@ -159,6 +162,8 @@ instance Show Instr where
         LD_A_u8 u8 -> "LD A," <> toHex u8
         LD_A_derefDE -> "LD A,(DE)"
         LD_B_A -> "LD B,A"
+        LD_B_u8 u8 -> "LD B," <> toHex u8
+        LD_C_A -> "LD C,A"
         LD_C_u8 u8 -> "LD C," <> toHex u8
         LD_DE_u16 u16 -> "LD DE," <> toHex u16
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
@@ -169,6 +174,7 @@ instance Show Instr where
         XOR_A -> "XOR A"
         INC_C -> "INC C"
         CALL u16 -> "CALL " <> toHex u16
+        PUSH_BC -> "PUSH BC"
 
 fetchU8 :: Memory -> U16 -> U8
 fetchU8 = (!)
@@ -189,6 +195,10 @@ fetch = do
     mem <- gets memory
     advance 1
     case mem ! counter of
+        0x06 -> do
+            let u8 = fetchU8 mem (counter + 1)
+            advance 1
+            pure $ LD_B_u8 u8
         0x0c -> pure INC_C
         0x0e -> do
             let u8 = fetchU8 mem (counter + 1)
@@ -217,8 +227,10 @@ fetch = do
             advance 1
             pure $ LD_A_u8 u8
         0x47 -> pure LD_B_A
+        0x4f -> pure LD_C_A
         0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
+        0xc5 -> pure PUSH_BC
         0xcb -> fetchPrefixed mem
         0xcd -> do
             let u16 = fetchU16 mem (counter + 1)
@@ -237,7 +249,7 @@ fetchPrefixed mem = do
     advance 1
     case byte of
         0x7c -> pure BIT_7_H
-        s -> fail $ toHex s
+        s -> fail $ "unknown prefixed byte: " <> toHex s
 
 push :: CPU m => U16 -> m ()
 push u16 = modify' $ \s ->
@@ -247,7 +259,7 @@ push u16 = modify' $ \s ->
     in
         s
             { registers = s.registers{sp = sp'}
-            , memory = s.memory // [(sp', lo), (sp', hi)]
+            , memory = s.memory // [(sp', lo), (sp' + 1, hi)] -- TODO: check
             }
 
 execute :: (MonadIO m, CPU m) => Instr -> m ()
@@ -267,6 +279,10 @@ execute = \case
         s{registers = s.registers{a = u8}}
     LD_B_A -> modify' $ \s ->
         s{registers = s.registers{b = s.registers.a}}
+    LD_B_u8 u8 -> modify' $ \s ->
+        s{registers = s.registers{b = u8}}
+    LD_C_A -> modify' $ \s ->
+        s{registers = s.registers{c = s.registers.a}}
     LD_C_u8 u8 -> modify' $ \s ->
         s{registers = s.registers{c = u8}}
     LD_DE_u16 u16 -> modify' $ \s ->
@@ -292,6 +308,9 @@ execute = \case
     CALL u16 -> do
         push u16
         modify' $ \s -> s{registers = s.registers{pc = u16}}
+    PUSH_BC -> do
+        bc <- gets (getBC . registers)
+        push bc
 
 run :: IO ()
 run = do
