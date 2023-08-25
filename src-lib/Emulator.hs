@@ -137,9 +137,13 @@ data Instr
     = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
     | LD_HL_u16 U16
     | LD_HLminus_A
-    | LD_C_u8 U8
     | LD_A_u8 U8
+    | LD_A_derefDE
+    | LD_B_A
+    | LD_C_u8 U8
+    | LD_DE_u16 U16
     | LD_FF00plusC_A
+    | LD_FF00plusU8_A U8
     | LD_derefHL_A
     | BIT_7_H
     | JR_NZ_i8 I8
@@ -151,9 +155,13 @@ instance Show Instr where
         LD_SP_u16 u16 -> "LD SP," <> toHex u16
         LD_HL_u16 u16 -> "LD HL," <> toHex u16
         LD_HLminus_A -> "LD (HL-),A"
-        LD_C_u8 u8 -> "LD C," <> toHex u8
         LD_A_u8 u8 -> "LD A," <> toHex u8
+        LD_A_derefDE -> "LD A,(DE)"
+        LD_B_A -> "LD B,A"
+        LD_C_u8 u8 -> "LD C," <> toHex u8
+        LD_DE_u16 u16 -> "LD DE," <> toHex u16
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
+        LD_FF00plusU8_A u8 -> "LD ($ff00+$" <> toHex u8 <> ",A)"
         LD_derefHL_A -> "LD (HL),A"
         BIT_7_H -> "BIT 7,H"
         JR_NZ_i8 i8 -> "JR NZ," <> show i8
@@ -183,6 +191,11 @@ fetch mem = do
             let u8 = fetchU8 mem (counter + 1)
             advance 1
             pure $ LD_C_u8 u8
+        0x11 -> do
+            let u16 = fetchU16 mem (counter + 1)
+            advance 2
+            pure $ LD_DE_u16 u16
+        0x1a -> pure LD_A_derefDE
         0x20 -> do
             let i8 = fetchI8 mem (counter + 1)
             advance 1
@@ -200,9 +213,13 @@ fetch mem = do
             let u8 = fetchU8 mem (counter + 1)
             advance 1
             pure $ LD_A_u8 u8
+        0x47 -> pure LD_B_A
         0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
         0xcb -> fetchPrefixed mem
+        0xe0 -> do
+            let u8 = fetchU8 mem (counter + 1)
+            pure $ LD_FF00plusU8_A u8
         0xe2 -> pure LD_FF00plusC_A
         b -> fail $ "unknown opcode: " <> toHex b
 
@@ -225,12 +242,20 @@ execute = \case
     LD_HLminus_A -> modify' $ \s ->
         let hl = getHL s.registers
         in s{registers = setHL s.registers (hl - 1), memory = s.memory // [(hl, s.registers.a)]}
-    LD_C_u8 u8 -> modify' $ \s ->
-        s{registers = s.registers{c = u8}}
+    LD_A_derefDE -> modify' $ \s ->
+        s{registers = s.registers{a = s.memory ! getDE s.registers}}
     LD_A_u8 u8 -> modify' $ \s ->
         s{registers = s.registers{a = u8}}
+    LD_B_A -> modify' $ \s ->
+        s{registers = s.registers{b = s.registers.a}}
+    LD_C_u8 u8 -> modify' $ \s ->
+        s{registers = s.registers{c = u8}}
+    LD_DE_u16 u16 -> modify' $ \s ->
+        s{registers = setDE s.registers u16}
     LD_FF00plusC_A -> modify' $ \s ->
         s{memory = s.memory // [(0xff00 + fromIntegral s.registers.c, s.registers.a)]}
+    LD_FF00plusU8_A u8 -> modify' $ \s ->
+        s{memory = s.memory // [(0xff00 + fromIntegral u8, s.registers.a)]}
     LD_derefHL_A -> modify' $ \s ->
         let hl = getHL s.registers in s{memory = s.memory // [(hl, s.registers.a)]}
     BIT_7_H -> modify' $ \s ->
