@@ -239,8 +239,10 @@ execute = \case
             bitIsSet = Bits.testBit s.registers.h 7
         in
             s{registers = modifyFlag' Zero (not bitIsSet) r'}
-    JR_NZ_i8 _i8 ->
-        pure () -- TODO implement flags, then this
+    JR_NZ_i8 i8 -> modify' $ \s ->
+        if not $ hasFlag' Zero s.registers
+            then s{registers = s.registers{pc = s.registers.pc + fromIntegral i8}}
+            else s
     INC_C -> modify' $ \s ->
         s{registers = s.registers{c = s.registers.c + 1}}
 
