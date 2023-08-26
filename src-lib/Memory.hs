@@ -1,7 +1,9 @@
 module Memory where
 
+import Control.Monad
 import Data.Array (Array)
 import qualified Data.Array as Array
+import qualified Data.ByteString as BS
 import Data.Int
 import Data.Word
 
@@ -34,3 +36,11 @@ bios = Array.listArray (0, 0xffff) $
   <> replicate (0xffff - 0xff) 0
 
 {- FOURMOLU_ENABLE -}
+
+loadCartridge :: FilePath -> IO Memory
+loadCartridge path = do
+    bytes <- BS.readFile path
+    let len = BS.length bytes
+    when (len > 0x10000) (fail $ "Unexpected cartridge size: " <> show len)
+    let padded = BS.unpack bytes <> replicate (0x10000 - len) 0
+    pure $ Array.listArray (0, 0xffff) padded

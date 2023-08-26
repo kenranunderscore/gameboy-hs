@@ -12,6 +12,7 @@ import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
 import qualified Data.Bits as Bits
 import Debug.Trace
 import qualified Numeric
+import qualified System.Environment as Environment
 
 import Memory
 
@@ -130,7 +131,7 @@ mkInitialState mem = CPUState initialRegisters mem
             , h = 0
             , l = 0
             , f = 0
-            , pc = 0
+            , pc = 0x100 -- start without BIOS for now
             , sp = 0xfffe
             }
 
@@ -411,9 +412,14 @@ execute = \case
 
 run :: IO ()
 run = do
-    finalRegisters <- execStateT startup (mkInitialState bios)
-    putStrLn "done"
-    print finalRegisters
+    args <- Environment.getArgs
+    case args of
+        [] -> fail "need path to ROM as first argument"
+        (cartridgePath : _) -> do
+            mem <- loadCartridge cartridgePath
+            finalRegisters <- execStateT startup (mkInitialState mem)
+            putStrLn "done"
+            print finalRegisters
 
 startup :: (MonadIO m, CPU m) => m ()
 startup = loop
