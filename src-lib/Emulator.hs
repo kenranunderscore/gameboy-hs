@@ -10,6 +10,7 @@ import Control.Monad.State.Strict
 import Data.Array ((!), (//))
 import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
 import qualified Data.Bits as Bits
+import Debug.Trace
 import qualified Numeric
 
 import Memory
@@ -59,7 +60,7 @@ hasFlag' :: Flag -> Registers -> Bool
 hasFlag' flag r = Bits.testBit r.f (flagBit flag)
 
 combineU8s :: U8 -> U8 -> U16
-combineU8s b1 b2 = (fromIntegral b1 .<<. 8) .|. fromIntegral b2
+combineU8s hi lo = (fromIntegral hi .<<. 8) .|. fromIntegral lo
 
 splitU16 :: U16 -> (U8, U8)
 splitU16 b = (fromIntegral (b .>>. 8), fromIntegral (b .&. 0xff))
@@ -133,7 +134,7 @@ mkInitialState mem = CPUState initialRegisters mem
             , sp = 0xfffe
             }
 
-type CPU m = (MonadState CPUState m, MonadFail m)
+type CPU m = MonadState CPUState m
 
 advance :: CPU m => U16 -> m ()
 advance n =
@@ -265,7 +266,7 @@ fetch = do
             advance 1
             pure $ LD_FF00plusU8_A u8
         0xe2 -> pure LD_FF00plusC_A
-        b -> fail $ "unknown opcode: " <> toHex b
+        b -> error $ "unknown opcode: " <> toHex b
 
 fetchPrefixed :: CPU m => Memory -> m Instr
 fetchPrefixed mem = do
@@ -274,36 +275,35 @@ fetchPrefixed mem = do
     case byte of
         0x11 -> pure RL_C
         0x7c -> pure BIT_7_H
-        s -> fail $ "unknown prefixed byte: " <> toHex s
+        s -> error $ "unknown prefixed byte: " <> toHex s
 
-push :: CPU m => U8 -> m ()
+push :: CPU m => U16 -> m ()
 push n = modify' $ \s ->
-    -- TODO: check SP: is it really correct to point at the last value instead
-    -- of "before" it?  shouldn't I insert at the old SP value?
-    let sp' = s.registers.pc - 1
-    in s
-        { registers = s.registers{sp = sp'}
-        , memory = s.memory // [(sp', n)]
-        }
+    -- TODO: correct SP?  Cinoop and very-lazy-boy decrement before writing to
+    -- the new location, but wouldn't that prevent the last address from ever
+    -- being used?
+    let
+        (hi, lo) = splitU16 n
+        sp' = s.registers.sp - 2
+    in
+        s
+            { registers = s.registers{sp = sp'}
+            , memory = s.memory // [(sp', lo), (sp' + 1, hi)]
+            }
 
-push2 :: CPU m => U16 -> m ()
-push2 n = do
-    let (hi, lo) = splitU16 n
-    -- TODO: correct order? correct SP?
-    push hi
-    push lo
-
-pop :: CPU m => m U8
+pop :: CPU m => m U16
 pop = do
     -- TODO: do I have to zero the popped memory location?
     s <- get
-    put s{registers = s.registers{sp = s.registers.sp + 1}}
-    pure (s.memory ! s.registers.sp)
+    put s{registers = s.registers{sp = s.registers.sp + 2}}
+    let
+        lo = s.memory ! s.registers.sp
+        hi = s.memory ! (s.registers.sp + 1)
+        n = combineU8s hi lo
+    traceM $ "    popped " <> toHex n
+    pure n
 
-pop2 :: CPU m => m U16
-pop2 = combineU8s <$> pop <*> pop
-
-execute :: (MonadIO m, CPU m) => Instr -> m ()
+execute :: CPU m => Instr -> m ()
 execute = \case
     XOR_A -> modify' $ \s ->
         s{registers = s.registers{a = 0}}
@@ -323,8 +323,11 @@ execute = \case
             { registers = setHL s.registers (hl + 1)
             , memory = s.memory // [(hl, s.registers.a)]
             }
-    LD_A_derefDE -> modify' $ \s ->
-        s{registers = s.registers{a = s.memory ! getDE s.registers}}
+    LD_A_derefDE -> do
+        modify' $ \s ->
+            s{registers = s.registers{a = s.memory ! getDE s.registers}}
+        x <- gets (.registers.a)
+        traceM $ "    LD A," <> toHex x
     LD_A_u8 u8 -> modify' $ \s ->
         s{registers = s.registers{a = u8}}
     LD_B_A -> modify' $ \s ->
@@ -360,13 +363,14 @@ execute = \case
     DEC_B -> modify' $ \s ->
         s{registers = s.registers{b = s.registers.b - 1}}
     CALL u16 -> do
-        push2 u16
+        push u16
+        traceM $ "    CALL " <> toHex u16
         modify' $ \s -> s{registers = s.registers{pc = u16}}
     PUSH_BC -> do
         bc <- gets (getBC . registers)
-        push2 bc
+        push bc
     POP_BC -> do
-        u16 <- pop2
+        u16 <- pop
         modify' $ \s -> s{registers = setBC s.registers u16}
     RLA -> pure () -- TODO: implement rotations
     RL_C -> pure () -- TODO: implement rotations
