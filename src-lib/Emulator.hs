@@ -421,5 +421,4 @@ startup = loop
     loop = forever $ do
         instr <- fetch
         execute instr
-        pc <- gets programCounter
-        liftIO . putStrLn $ toHex pc <> " : " <> show instr
+        liftIO $ print instr
