@@ -158,6 +158,7 @@ data Instr
     | LD_HLminus_A
     | LD_HLplus_A
     | BIT_7_H
+    | JP_u16 U16
     | JR_NZ_i8 I8
     | XOR_A
     | INC_C
@@ -169,6 +170,7 @@ data Instr
     | POP_BC
     | RLA
     | RL_C
+    | NOP
 
 instance Show Instr where
     show = \case
@@ -188,6 +190,7 @@ instance Show Instr where
         LD_FF00plusU8_A u8 -> "LD ($ff00+$" <> toHex u8 <> ",A)"
         BIT_7_H -> "BIT 7,H"
         JR_NZ_i8 i8 -> "JR NZ," <> show i8
+        JP_u16 u16 -> "JP " <> toHex u16
         XOR_A -> "XOR A"
         INC_C -> "INC C"
         INC_HL -> "INC HL"
@@ -198,6 +201,7 @@ instance Show Instr where
         POP_BC -> "POP BC"
         RLA -> "RLA"
         RL_C -> "RL C"
+        NOP -> "NOP"
 
 fetchU8 :: Memory -> U16 -> U8
 fetchU8 = (!)
@@ -218,6 +222,7 @@ fetch = do
     mem <- gets memory
     advance 1
     case mem ! counter of
+        0 -> pure NOP
         0x05 -> pure DEC_B
         0x06 -> do
             let u8 = fetchU8 mem (counter + 1)
@@ -258,6 +263,10 @@ fetch = do
         0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
         0xc1 -> pure POP_BC
+        0xc3 -> do
+            let u16 = fetchU16 mem (counter + 1)
+            advance 2
+            pure $ JP_u16 u16
         0xc5 -> pure PUSH_BC
         0xc9 -> pure RET
         0xcb -> fetchPrefixed mem
@@ -309,6 +318,7 @@ pop = do
 
 execute :: CPU m => Instr -> m ()
 execute = \case
+    NOP -> pure ()
     XOR_A -> modify' $ \s ->
         s{registers = s.registers{a = 0}}
     LD_SP_u16 u16 -> modify' $ \s ->
@@ -360,6 +370,8 @@ execute = \case
         if not $ hasFlag' Zero s.registers
             then s{registers = s.registers{pc = s.registers.pc + fromIntegral i8}}
             else s
+    JP_u16 u16 -> modify' $ \s ->
+        s{registers = s.registers{pc = u16}}
     INC_C -> modify' $ \s ->
         s{registers = s.registers{c = s.registers.c + 1}}
     INC_HL -> modify' $ \s ->
