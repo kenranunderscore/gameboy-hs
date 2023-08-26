@@ -380,8 +380,34 @@ execute = \case
     POP_BC -> do
         u16 <- pop
         modify' $ \s -> s{registers = setBC s.registers u16}
-    RLA -> pure () -- TODO: implement rotations
-    RL_C -> pure () -- TODO: implement rotations
+    RLA -> modify' $ \s ->
+        let
+            carry = if hasFlag' Carry s.registers then 1 else 0
+            carry' = Bits.testBit s.registers.a 7
+            a' = Bits.shiftL s.registers.a 1 + carry
+        in
+            s
+                { registers =
+                    modifyFlag' Carry carry' $
+                        clearFlag' Zero $ -- TODO: check: some do this, but manual says it changes
+                            clearFlag' Negative $
+                                clearFlag' HalfCarry $
+                                    s.registers{a = a'}
+                }
+    RL_C -> modify' $ \s ->
+        let
+            carry = if hasFlag' Carry s.registers then 1 else 0
+            carry' = Bits.testBit s.registers.c 7
+            c' = Bits.shiftL s.registers.c 1 + carry
+        in
+            s
+                { registers =
+                    modifyFlag' Carry carry' $
+                        modifyFlag' Zero (c' == 0) $
+                            clearFlag' Negative $
+                                clearFlag' HalfCarry $
+                                    s.registers{c = c'}
+                }
 
 run :: IO ()
 run = do
