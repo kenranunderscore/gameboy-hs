@@ -163,6 +163,7 @@ data Instr
     | INC_HL
     | DEC_B
     | CALL U16
+    | RET
     | PUSH_BC
     | POP_BC
     | RLA
@@ -191,6 +192,7 @@ instance Show Instr where
         INC_HL -> "INC HL"
         DEC_B -> "DEC B"
         CALL u16 -> "CALL " <> toHex u16
+        RET -> "RET"
         PUSH_BC -> "PUSH BC"
         POP_BC -> "POP BC"
         RLA -> "RLA"
@@ -256,6 +258,7 @@ fetch = do
         0xaf -> pure XOR_A
         0xc1 -> pure POP_BC
         0xc5 -> pure PUSH_BC
+        0xc9 -> pure RET
         0xcb -> fetchPrefixed mem
         0xcd -> do
             let u16 = fetchU16 mem (counter + 1)
@@ -278,18 +281,18 @@ fetchPrefixed mem = do
         s -> error $ "unknown prefixed byte: " <> toHex s
 
 push :: CPU m => U16 -> m ()
-push n = modify' $ \s ->
+push n = do
     -- TODO: correct SP?  Cinoop and very-lazy-boy decrement before writing to
     -- the new location, but wouldn't that prevent the last address from ever
     -- being used?
-    let
-        (hi, lo) = splitU16 n
-        sp' = s.registers.sp - 2
-    in
-        s
-            { registers = s.registers{sp = sp'}
-            , memory = s.memory // [(sp', lo), (sp' + 1, hi)]
-            }
+    modify' $ \s ->
+        trace ("    pushed " <> toHex n) $
+            s
+                { registers = s.registers{sp = s.registers.sp - 2}
+                , memory = s.memory // [(s.registers.sp - 2, lo), (s.registers.sp - 1, hi)]
+                }
+  where
+    (hi, lo) = splitU16 n
 
 pop :: CPU m => m U16
 pop = do
@@ -363,9 +366,14 @@ execute = \case
     DEC_B -> modify' $ \s ->
         s{registers = s.registers{b = s.registers.b - 1}}
     CALL u16 -> do
-        push u16
+        pc <- gets programCounter
+        push (pc + 1)
         traceM $ "    CALL " <> toHex u16
         modify' $ \s -> s{registers = s.registers{pc = u16}}
+    RET -> do
+        addr <- pop
+        traceM $ "    RET " <> toHex addr
+        modify' $ \s -> s{registers = s.registers{pc = addr}}
     PUSH_BC -> do
         bc <- gets (getBC . registers)
         push bc
