@@ -377,7 +377,14 @@ execute = \case
     INC_HL -> modify' $ \s ->
         s{registers = setHL s.registers (getHL s.registers + 1)}
     DEC_B -> modify' $ \s ->
-        s{registers = s.registers{b = s.registers.b - 1}}
+        let result = s.registers.b - 1
+        in s
+            { registers =
+                modifyFlag' Zero (result == 0) $
+                    setFlag' Negative $
+                        modifyFlag' HalfCarry (s.registers.b .&. 0x0f == 0) $
+                            s.registers{b = s.registers.b - 1}
+            }
     CALL u16 -> do
         pc <- gets programCounter
         push (pc + 1)
