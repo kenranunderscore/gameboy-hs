@@ -174,6 +174,7 @@ data Instr
     | RL_C
     | DI
     | NOP
+    | CP_A_u8 U8
 
 instance Show Instr where
     show = \case
@@ -208,6 +209,7 @@ instance Show Instr where
         RL_C -> "RL C"
         DI -> "DI"
         NOP -> "NOP"
+        CP_A_u8 u8 -> "CP A," <> toHex u8
 
 fetchU8 :: Memory -> U16 -> U8
 fetchU8 = (!)
@@ -291,6 +293,10 @@ fetch = do
             advance 1
             pure $ LD_A_FF00plusU8 u8
         0xf3 -> pure DI
+        0xfe -> do
+            let u8 = fetchU8 mem (counter + 1)
+            advance 1
+            pure $ CP_A_u8 u8
         b -> error $ "unknown opcode: " <> toHex b
     pure res
 
@@ -450,6 +456,15 @@ execute = \case
                                     s.registers{c = c'}
                 }
     DI -> pure () -- TODO: disable interrupts
+    CP_A_u8 u8 -> modify' $ \s ->
+        let r' = setFlag' Negative s.registers
+        in s
+            { registers =
+                modifyFlag' Zero (s.registers.a == u8) $
+                    modifyFlag' Carry (s.registers.a < u8) $
+                        -- modifyFlag' HalfCarry () $ -- TODO: implement
+                        r'
+            }
 
 run :: IO ()
 run = do
