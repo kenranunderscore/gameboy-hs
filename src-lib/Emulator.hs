@@ -147,6 +147,7 @@ data Instr
     | LD_HL_u16 U16
     | LD_A_u8 U8
     | LD_A_derefDE
+    | LD_A_FF00plusU8 U8
     | LD_B_A
     | LD_B_u8 U8
     | LD_C_A
@@ -164,12 +165,14 @@ data Instr
     | INC_C
     | INC_HL
     | DEC_B
+    | DEC_C
     | CALL U16
     | RET
     | PUSH_BC
     | POP_BC
     | RLA
     | RL_C
+    | DI
     | NOP
 
 instance Show Instr where
@@ -181,13 +184,14 @@ instance Show Instr where
         LD_HLplus_A -> "LD (HL+),A"
         LD_A_u8 u8 -> "LD A," <> toHex u8
         LD_A_derefDE -> "LD A,(DE)"
+        LD_A_FF00plusU8 u8 -> "LD A,($ff00+" <> toHex u8 <> ")"
         LD_B_A -> "LD B,A"
         LD_B_u8 u8 -> "LD B," <> toHex u8
         LD_C_A -> "LD C,A"
         LD_C_u8 u8 -> "LD C," <> toHex u8
         LD_DE_u16 u16 -> "LD DE," <> toHex u16
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
-        LD_FF00plusU8_A u8 -> "LD ($ff00+$" <> toHex u8 <> ",A)"
+        LD_FF00plusU8_A u8 -> "LD ($ff00+" <> toHex u8 <> "),A"
         BIT_7_H -> "BIT 7,H"
         JR_NZ_i8 i8 -> "JR NZ," <> show i8
         JP_u16 u16 -> "JP " <> toHex u16
@@ -195,12 +199,14 @@ instance Show Instr where
         INC_C -> "INC C"
         INC_HL -> "INC HL"
         DEC_B -> "DEC B"
+        DEC_C -> "DEC C"
         CALL u16 -> "CALL " <> toHex u16
         RET -> "RET"
         PUSH_BC -> "PUSH BC"
         POP_BC -> "POP BC"
         RLA -> "RLA"
         RL_C -> "RL C"
+        DI -> "DI"
         NOP -> "NOP"
 
 fetchU8 :: Memory -> U16 -> U8
@@ -221,7 +227,7 @@ fetch = do
     counter <- gets programCounter
     mem <- gets memory
     advance 1
-    case mem ! counter of
+    res <- case mem ! counter of
         0 -> pure NOP
         0x05 -> pure DEC_B
         0x06 -> do
@@ -229,6 +235,7 @@ fetch = do
             advance 1
             pure $ LD_B_u8 u8
         0x0c -> pure INC_C
+        0x0d -> pure DEC_C
         0x0e -> do
             let u8 = fetchU8 mem (counter + 1)
             advance 1
@@ -279,7 +286,13 @@ fetch = do
             advance 1
             pure $ LD_FF00plusU8_A u8
         0xe2 -> pure LD_FF00plusC_A
+        0xf0 -> do
+            let u8 = fetchU8 mem (counter + 1)
+            advance 1
+            pure $ LD_A_FF00plusU8 u8
+        0xf3 -> pure DI
         b -> error $ "unknown opcode: " <> toHex b
+    pure res
 
 fetchPrefixed :: CPU m => Memory -> m Instr
 fetchPrefixed mem = do
@@ -337,11 +350,10 @@ execute = \case
             { registers = setHL s.registers (hl + 1)
             , memory = s.memory // [(hl, s.registers.a)]
             }
-    LD_A_derefDE -> do
-        modify' $ \s ->
-            s{registers = s.registers{a = s.memory ! getDE s.registers}}
-        x <- gets (.registers.a)
-        traceM $ "    LD A," <> toHex x
+    LD_A_derefDE -> modify' $ \s ->
+        s{registers = s.registers{a = s.memory ! getDE s.registers}}
+    LD_A_FF00plusU8 u8 -> modify' $ \s ->
+        s{registers = s.registers{a = s.memory ! 0xff00 + u8}}
     LD_A_u8 u8 -> modify' $ \s ->
         s{registers = s.registers{a = u8}}
     LD_B_A -> modify' $ \s ->
@@ -383,7 +395,16 @@ execute = \case
                 modifyFlag' Zero (result == 0) $
                     setFlag' Negative $
                         modifyFlag' HalfCarry (s.registers.b .&. 0x0f == 0) $
-                            s.registers{b = s.registers.b - 1}
+                            s.registers{b = result}
+            }
+    DEC_C -> modify' $ \s ->
+        let result = s.registers.c - 1
+        in s
+            { registers =
+                modifyFlag' Zero (result == 0) $
+                    setFlag' Negative $
+                        modifyFlag' HalfCarry (s.registers.c .&. 0x0f == 0) $
+                            s.registers{c = result}
             }
     CALL u16 -> do
         pc <- gets programCounter
@@ -428,6 +449,7 @@ execute = \case
                                 clearFlag' HalfCarry $
                                     s.registers{c = c'}
                 }
+    DI -> pure () -- TODO: disable interrupts
 
 run :: IO ()
 run = do
