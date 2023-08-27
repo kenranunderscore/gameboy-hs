@@ -437,6 +437,7 @@ startup :: (MonadIO m, CPU m) => m ()
 startup = loop
   where
     loop = forever $ do
+        s <- get
         instr <- fetch
         execute instr
-        liftIO $ print instr
+        liftIO $ putStrLn $ toHex s.registers.pc <> " :  " <> show instr
