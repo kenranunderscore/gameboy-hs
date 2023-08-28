@@ -68,17 +68,17 @@ clearFlag' flag r = modifyFlag' flag False r
 hasFlag' :: Flag -> Registers -> Bool
 hasFlag' flag r = Bits.testBit r._f (flagBit flag)
 
-combineU8s :: U8 -> U8 -> U16
-combineU8s hi lo = (fromIntegral hi .<<. 8) .|. fromIntegral lo
+combineBytes :: U8 -> U8 -> U16
+combineBytes hi lo = (fromIntegral hi .<<. 8) .|. fromIntegral lo
 
-splitU16 :: U16 -> (U8, U8)
-splitU16 n = (fromIntegral (n .>>. 8), fromIntegral (n .&. 0xff))
+splitIntoBytes :: U16 -> (U8, U8)
+splitIntoBytes n = (fromIntegral (n .>>. 8), fromIntegral (n .&. 0xff))
 
 combineRegisters :: Lens' Registers U8 -> Lens' Registers U8 -> Lens' Registers U16
 combineRegisters hiL loL =
     lens
-        (\r -> combineU8s (view hiL r) (view loL r))
-        (\r n -> let (hi, lo) = splitU16 n in r & hiL .~ hi & loL .~ lo)
+        (\r -> combineBytes (view hiL r) (view loL r))
+        (\r n -> let (hi, lo) = splitIntoBytes n in r & hiL .~ hi & loL .~ lo)
 
 bc :: Lens' Registers U16
 bc = combineRegisters b c
@@ -210,14 +210,14 @@ instance Show Instr where
         NOP -> "NOP"
         CP_A_u8 n -> "CP A," <> toHex n
 
-fetchU8 :: Memory -> U16 -> U8
-fetchU8 = (!)
+fetchByte :: Memory -> U16 -> U8
+fetchByte = (!)
 
 fetchByteM :: CPU m => m U8
-fetchByteM = do 
+fetchByteM = do
     s <- get
     advance 1
-    pure $ fetchU8 (view memory s) (view programCounter s)
+    pure $ fetchByte (view memory s) (view programCounter s)
 
 fetchI8M :: CPU m => m I8
 fetchI8M = fromIntegral <$> fetchByteM
@@ -250,7 +250,7 @@ fetch = do
         0x11 -> LD_DE_u16 <$> fetchU16M
         0x17 -> pure RLA
         0x1a -> pure LD_A_derefDE
-        0x20 ->  JR_NZ_i8  <$> fetchI8M
+        0x20 -> JR_NZ_i8 <$> fetchI8M
         0x21 -> LD_HL_u16 <$> fetchU16M
         0x22 -> pure LD_HLplus_A
         0x23 -> pure INC_HL
@@ -296,7 +296,7 @@ push n = do
                 & memory %~ (// [(curr - 2, lo), (curr - 1, hi)])
         )
   where
-    (hi, lo) = splitU16 n
+    (hi, lo) = splitIntoBytes n
 
 pop :: CPU m => m U16
 pop = do
@@ -306,9 +306,37 @@ pop = do
     let
         lo = view memory s ! view stackPointer s
         hi = view memory s ! (view stackPointer s + 1)
-        n = combineU8s hi lo
+        n = combineBytes hi lo
     traceM $ "    popped " <> toHex n
     pure n
+
+dec :: CPU m => Lens' Registers U8 -> m ()
+dec reg = modify' $ \s ->
+    let
+        old = s ^. registers % reg
+        result = old - 1
+    in
+        s
+            { _registers =
+                modifyFlag' Zero (result == 0) $
+                    setFlag' Negative $
+                        modifyFlag' HalfCarry (old .&. 0x0f == 0) $
+                            (s._registers & reg .~ result)
+            }
+
+inc :: CPU m => Lens' Registers U8 -> m ()
+inc reg = modify' $ \s ->
+    let
+        old = s ^. registers % reg
+        result = old + 1
+    in
+        s
+            { _registers =
+                modifyFlag' Zero (result == 0) $
+                    clearFlag' Negative $
+                        modifyFlag' HalfCarry (old .&. 0x0f == 0x0f) $
+                            (s._registers & reg .~ result)
+            }
 
 execute :: CPU m => Instr -> m ()
 execute = \case
@@ -345,9 +373,11 @@ execute = \case
     LD_DE_u16 n ->
         assign' (registers % de) n
     LD_FF00plusC_A -> modify' $ \s ->
-        let c' = s ^. registers % c
+        let
+            c' = s ^. registers % c
             a' = s ^. registers % a
-        in s & memory %~ (// [(0xff00 + fromIntegral c', a')])
+        in
+            s & memory %~ (// [(0xff00 + fromIntegral c', a')])
     LD_FF00plusU8_A n -> modify' $ \s ->
         s & memory %~ (// [(0xff00 + fromIntegral n, s ^. registers % a)])
     LD_derefHL_A -> modify' $ \s ->
@@ -365,29 +395,13 @@ execute = \case
     JP_u16 n ->
         assign' (registers % pc) n
     INC_C ->
-        modifying' (registers % c) (+ 1)
+        inc c
     INC_HL ->
         modifying' (registers % hl) (+ 1)
-    DEC_B -> modify' $ \s ->
-        let old = s ^. registers % b
-            result = old - 1
-        in s
-            { _registers =
-                modifyFlag' Zero (result == 0) $
-                    setFlag' Negative $
-                        modifyFlag' HalfCarry (old .&. 0x0f == 0) $
-                            s._registers{_b = result}
-            }
-    DEC_C -> modify' $ \s ->
-        let old = s ^. registers % c
-            result = old - 1
-        in s
-            { _registers =
-                modifyFlag' Zero (result == 0) $
-                    setFlag' Negative $
-                        modifyFlag' HalfCarry (old .&. 0x0f == 0) $
-                            s._registers{_c = result}
-            }
+    DEC_B ->
+        dec b
+    DEC_C ->
+        dec c
     CALL n -> do
         counter <- gets (view programCounter)
         push (counter + 1)
@@ -429,17 +443,20 @@ execute = \case
                                 clearFlag' HalfCarry $
                                     s._registers{_c = c'}
                 }
-    DI -> pure () -- TODO: disable interrupts
+    DI ->
+        pure () -- TODO: disable interrupts
     CP_A_u8 n -> modify' $ \s ->
-        let r' = setFlag' Negative (view registers s)
+        let
+            r' = setFlag' Negative (view registers s)
             val = s ^. registers % a
-        in s
-            { _registers =
-                modifyFlag' Zero (val == n) $
-                    modifyFlag' Carry (val < n) $
-                        -- modifyFlag' HalfCarry () $ -- TODO: implement
-                        r'
-            }
+        in
+            s
+                { _registers =
+                    modifyFlag' Zero (val == n) $
+                        modifyFlag' Carry (val < n) $
+                            -- modifyFlag' HalfCarry () $ -- TODO: implement
+                            r'
+                }
 
 run :: IO ()
 run = do

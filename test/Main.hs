@@ -19,10 +19,10 @@ tests =
         "Emulator"
         [ registerTests
         , stackTests
-        , testCase "combineU8s" $ combineU8s 0x9a 0x3f @?= 0x9a3f
-        , testCase "splitU16 with low byte only" $ splitU16 0x001f @?= (0, 0x1f)
-        , testCase "splitU16 with high byte only" $ splitU16 0xe200 @?= (0xe2, 0)
-        , testCase "splitU16" $ splitU16 0xe207 @?= (0xe2, 0x07)
+        , testCase "combineBytes" $ combineBytes 0x9a 0x3f @?= 0x9a3f
+        , testCase "splitIntoBytes with low byte only" $ splitIntoBytes 0x001f @?= (0, 0x1f)
+        , testCase "splitIntoBytes with high byte only" $ splitIntoBytes 0xe200 @?= (0xe2, 0)
+        , testCase "splitIntoBytes" $ splitIntoBytes 0xe207 @?= (0xe2, 0x07)
         ]
 
 emptyRegisters :: Registers
