@@ -170,9 +170,7 @@ data Instr
     | LD_A_u8 U8
     | LD_A_derefDE
     | LD_A_FF00plusU8 U8
-    | LD_B_A
     | LD_B_u8 U8
-    | LD_C_A
     | LD_C_u8 U8
     | LD_DE_u16 U16
     | LD_FF00plusC_A
@@ -180,6 +178,7 @@ data Instr
     | LD_derefHL_A
     | LD_HLminus_A
     | LD_HLplus_A
+    | LD_r_r TargetRegister TargetRegister
     | BIT_7_H
     | JP_u16 U16
     | JR_NZ_i8 I8
@@ -210,9 +209,8 @@ instance Show Instr where
         LD_A_u8 n -> "LD A," <> toHex n
         LD_A_derefDE -> "LD A,(DE)"
         LD_A_FF00plusU8 n -> "LD A,($ff00+" <> toHex n <> ")"
-        LD_B_A -> "LD B,A"
+        LD_r_r r r' -> "LD " <> show r <> "," <> show r'
         LD_B_u8 n -> "LD B," <> toHex n
-        LD_C_A -> "LD C,A"
         LD_C_u8 n -> "LD C," <> toHex n
         LD_DE_u16 n -> "LD DE," <> toHex n
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
@@ -304,8 +302,8 @@ fetch = do
         0x3c -> pure $ INC A
         0x3d -> pure $ DEC A
         0x3e -> LD_A_u8 <$> fetchByteM
-        0x47 -> pure LD_B_A
-        0x4f -> pure LD_C_A
+        0x47 -> pure $ LD_r_r B A
+        0x4f -> pure $ LD_r_r C A
         0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
         0xc1 -> pure POP_BC
@@ -385,6 +383,10 @@ inc reg = modify' $ \s ->
                             (s._registers & reg .~ result)
             }
 
+ld_r_r :: CPU m => TargetRegister -> TargetRegister -> m ()
+ld_r_r r r' = modify' $ \s ->
+    s & registers % (targetL r) .~ (s ^. registers % targetL r')
+
 execute :: CPU m => Instr -> m ()
 execute = \case
     NOP -> pure ()
@@ -409,12 +411,10 @@ execute = \case
         s & registers % a .~ (view memory s ! 0xff00 + n)
     LD_A_u8 n ->
         assign' (registers % a) n
-    LD_B_A -> modify' $ \s ->
-        s & registers % b .~ (s ^. registers % a)
     LD_B_u8 n ->
         assign' (registers % b) n
-    LD_C_A -> modify' $ \s ->
-        s & registers % c .~ (s ^. registers % a)
+    LD_r_r r r' ->
+        ld_r_r r r'
     LD_C_u8 n ->
         assign' (registers % c) n
     LD_DE_u16 n ->
