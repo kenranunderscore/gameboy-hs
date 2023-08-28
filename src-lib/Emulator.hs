@@ -213,8 +213,14 @@ instance Show Instr where
 fetchU8 :: Memory -> U16 -> U8
 fetchU8 = (!)
 
-fetchI8 :: Memory -> U16 -> I8
-fetchI8 mem = fromIntegral . fetchU8 mem
+fetchByteM :: CPU m => m U8
+fetchByteM = do 
+    s <- get
+    advance 1
+    pure $ fetchU8 (view memory s) (view programCounter s)
+
+fetchI8M :: CPU m => m I8
+fetchI8M = fromIntegral <$> fetchByteM
 
 fetchU16 :: Memory -> U16 -> U16
 fetchU16 mem addr = do
@@ -222,6 +228,12 @@ fetchU16 mem addr = do
         hi = mem ! (addr + 1) -- little Endian
         lo = mem ! addr
     (fromIntegral hi .<<. 8) .|. fromIntegral lo
+
+fetchU16M :: CPU m => m U16
+fetchU16M = do
+    s <- get
+    advance 2
+    pure $ fetchU16 (view memory s) (view programCounter s)
 
 fetch :: CPU m => m Instr
 fetch = do
@@ -231,71 +243,35 @@ fetch = do
     case mem ! counter of
         0 -> pure NOP
         0x05 -> pure DEC_B
-        0x06 -> do
-            let n = fetchU8 mem (counter + 1)
-            advance 1
-            pure $ LD_B_u8 n
+        0x06 -> LD_B_u8 <$> fetchByteM
         0x0c -> pure INC_C
         0x0d -> pure DEC_C
-        0x0e -> do
-            let n = fetchU8 mem (counter + 1)
-            advance 1
-            pure $ LD_C_u8 n
-        0x11 -> do
-            let n = fetchU16 mem (counter + 1)
-            advance 2
-            pure $ LD_DE_u16 n
+        0x0e -> LD_C_u8 <$> fetchByteM
+        0x11 -> LD_DE_u16 <$> fetchU16M
         0x17 -> pure RLA
         0x1a -> pure LD_A_derefDE
-        0x20 -> do
-            let n = fetchI8 mem (counter + 1)
-            advance 1
-            pure $ JR_NZ_i8 n
-        0x21 -> do
-            let n = fetchU16 mem (counter + 1)
-            advance 2
-            pure $ LD_HL_u16 n
+        0x20 ->  JR_NZ_i8  <$> fetchI8M
+        0x21 -> LD_HL_u16 <$> fetchU16M
         0x22 -> pure LD_HLplus_A
         0x23 -> pure INC_HL
-        0x31 -> do
-            let n = fetchU16 mem (counter + 1)
-            advance 2
-            pure $ LD_SP_u16 n
+        0x31 -> LD_SP_u16 <$> fetchU16M
         0x32 -> pure LD_HLminus_A
-        0x3e -> do
-            let n = fetchU8 mem (counter + 1)
-            advance 1
-            pure $ LD_A_u8 n
+        0x3e -> LD_A_u8 <$> fetchByteM
         0x47 -> pure LD_B_A
         0x4f -> pure LD_C_A
         0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
         0xc1 -> pure POP_BC
-        0xc3 -> do
-            let n = fetchU16 mem (counter + 1)
-            advance 2
-            pure $ JP_u16 n
+        0xc3 -> JP_u16 <$> fetchU16M
         0xc5 -> pure PUSH_BC
         0xc9 -> pure RET
         0xcb -> fetchPrefixed mem
-        0xcd -> do
-            let n = fetchU16 mem (counter + 1)
-            advance 2
-            pure $ CALL n
-        0xe0 -> do
-            let n = fetchU8 mem (counter + 1)
-            advance 1
-            pure $ LD_FF00plusU8_A n
+        0xcd -> CALL <$> fetchU16M
+        0xe0 -> LD_FF00plusU8_A <$> fetchByteM
         0xe2 -> pure LD_FF00plusC_A
-        0xf0 -> do
-            let n = fetchU8 mem (counter + 1)
-            advance 1
-            pure $ LD_A_FF00plusU8 n
+        0xf0 -> LD_A_FF00plusU8 <$> fetchByteM
         0xf3 -> pure DI
-        0xfe -> do
-            let n = fetchU8 mem (counter + 1)
-            advance 1
-            pure $ CP_A_u8 n
+        0xfe -> CP_A_u8 <$> fetchByteM
         unknown -> error $ "unknown opcode: " <> toHex unknown
 
 fetchPrefixed :: CPU m => Memory -> m Instr
