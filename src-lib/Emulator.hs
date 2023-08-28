@@ -154,6 +154,16 @@ targetL = \case
     H -> h
     L -> l
 
+data TargetRegister16 = BC | DE | HL | SP
+    deriving stock (Show)
+
+target16L :: TargetRegister16 -> Lens' Registers U16
+target16L = \case
+    BC -> bc
+    DE -> de
+    HL -> hl
+    SP -> sp
+
 data Instr
     = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
     | LD_HL_u16 U16
@@ -176,10 +186,7 @@ data Instr
     | XOR_A
     | INC TargetRegister
     | INC_derefHL
-    | INC_BC
-    | INC_DE
-    | INC_HL
-    | INC_SP
+    | INC16 TargetRegister16
     | DEC_B
     | DEC_C
     | CALL U16
@@ -215,10 +222,7 @@ instance Show Instr where
         XOR_A -> "XOR A"
         INC r -> "INC " <> show r
         INC_derefHL -> "INC (HL)"
-        INC_BC -> "INC BC"
-        INC_DE -> "INC DE"
-        INC_HL -> "INC HL"
-        INC_SP -> "INC SP"
+        INC16 r -> "INC " <> show r
         DEC_B -> "DEC B"
         DEC_C -> "DEC C"
         CALL n -> "CALL " <> toHex n
@@ -263,7 +267,7 @@ fetch = do
     advance 1
     case mem ! counter of
         0 -> pure NOP
-        0x03 -> pure INC_BC
+        0x03 -> pure $ INC16 BC
         0x04 -> pure $ INC B
         0x05 -> pure DEC_B
         0x06 -> LD_B_u8 <$> fetchByteM
@@ -271,7 +275,7 @@ fetch = do
         0x0d -> pure DEC_C
         0x0e -> LD_C_u8 <$> fetchByteM
         0x11 -> LD_DE_u16 <$> fetchU16M
-        0x13 -> pure INC_DE
+        0x13 -> pure $ INC16 DE
         0x14 -> pure $ INC D
         0x17 -> pure RLA
         0x1a -> pure LD_A_derefDE
@@ -279,12 +283,12 @@ fetch = do
         0x20 -> JR_NZ_i8 <$> fetchI8M
         0x21 -> LD_HL_u16 <$> fetchU16M
         0x22 -> pure LD_HLplus_A
-        0x23 -> pure INC_HL
+        0x23 -> pure $ INC16 HL
         0x24 -> pure $ INC H
         0x2c -> pure $ INC L
         0x31 -> LD_SP_u16 <$> fetchU16M
         0x32 -> pure LD_HLminus_A
-        0x33 -> pure INC_SP
+        0x33 -> pure $ INC16 SP
         0x34 -> pure INC_derefHL
         0x3c -> pure $ INC A
         0x3e -> LD_A_u8 <$> fetchByteM
@@ -433,14 +437,8 @@ execute = \case
             val = view memory s ! p + 1
         in
             s & memory %~ (// [(p, val)])
-    INC_BC ->
-        modifying' (registers % bc) (+ 1)
-    INC_DE ->
-        modifying' (registers % de) (+ 1)
-    INC_HL ->
-        modifying' (registers % hl) (+ 1)
-    INC_SP ->
-        modifying' (registers % sp) (+ 1)
+    INC16 r ->
+        modifying' (registers % (target16L r)) (+ 1)
     DEC_B ->
         dec b
     DEC_C ->
