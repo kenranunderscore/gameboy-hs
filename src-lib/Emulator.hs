@@ -187,8 +187,9 @@ data Instr
     | INC TargetRegister
     | INC_derefHL
     | INC16 TargetRegister16
-    | DEC_B
-    | DEC_C
+    | DEC TargetRegister
+    | DEC_derefHL
+    | DEC16 TargetRegister16
     | CALL U16
     | RET
     | PUSH_BC
@@ -223,8 +224,9 @@ instance Show Instr where
         INC r -> "INC " <> show r
         INC_derefHL -> "INC (HL)"
         INC16 r -> "INC " <> show r
-        DEC_B -> "DEC B"
-        DEC_C -> "DEC C"
+        DEC r -> "DEC " <> show r
+        DEC_derefHL -> "DEC (HL)"
+        DEC16 r -> "DEC " <> show r
         CALL n -> "CALL " <> toHex n
         RET -> "RET"
         PUSH_BC -> "PUSH BC"
@@ -269,28 +271,38 @@ fetch = do
         0 -> pure NOP
         0x03 -> pure $ INC16 BC
         0x04 -> pure $ INC B
-        0x05 -> pure DEC_B
+        0x05 -> pure $ DEC B
         0x06 -> LD_B_u8 <$> fetchByteM
+        0x0b -> pure $ DEC16 BC
         0x0c -> pure $ INC C
-        0x0d -> pure DEC_C
+        0x0d -> pure $ DEC C
         0x0e -> LD_C_u8 <$> fetchByteM
         0x11 -> LD_DE_u16 <$> fetchU16M
         0x13 -> pure $ INC16 DE
         0x14 -> pure $ INC D
+        0x15 -> pure $ DEC D
         0x17 -> pure RLA
         0x1a -> pure LD_A_derefDE
+        0x1b -> pure $ DEC16 DE
         0x1c -> pure $ INC E
+        0x1d -> pure $ DEC E
         0x20 -> JR_NZ_i8 <$> fetchI8M
         0x21 -> LD_HL_u16 <$> fetchU16M
         0x22 -> pure LD_HLplus_A
         0x23 -> pure $ INC16 HL
         0x24 -> pure $ INC H
+        0x25 -> pure $ DEC H
+        0x2b -> pure $ DEC16 HL
         0x2c -> pure $ INC L
+        0x2d -> pure $ DEC L
         0x31 -> LD_SP_u16 <$> fetchU16M
         0x32 -> pure LD_HLminus_A
         0x33 -> pure $ INC16 SP
         0x34 -> pure INC_derefHL
+        0x35 -> pure DEC_derefHL
+        0x3b -> pure $ DEC16 SP
         0x3c -> pure $ INC A
+        0x3d -> pure $ DEC A
         0x3e -> LD_A_u8 <$> fetchByteM
         0x47 -> pure LD_B_A
         0x4f -> pure LD_C_A
@@ -434,15 +446,28 @@ execute = \case
     INC_derefHL -> modify' $ \s ->
         let
             p = s ^. registers % hl
-            val = view memory s ! p + 1
+            val = (view memory s ! p) + 1
         in
             s & memory %~ (// [(p, val)])
     INC16 r ->
         modifying' (registers % (target16L r)) (+ 1)
-    DEC_B ->
-        dec b
-    DEC_C ->
-        dec c
+    DEC r ->
+        dec (targetL r)
+    DEC_derefHL -> modify' $ \s ->
+        let
+            p = s ^. registers % hl
+            val = (view memory s ! p) - 1
+        in
+            s
+                & memory %~ (// [(p, val)])
+                & registers
+                    .~ ( modifyFlag' Zero (val == 0) $
+                            setFlag' Negative $
+                                modifyFlag' HalfCarry ((val + 1) .&. 0x0f == 0) $
+                                    view registers s
+                       )
+    DEC16 r ->
+        modifying' (registers % (target16L r)) (\n -> n - 1)
     CALL n -> do
         counter <- gets (view programCounter)
         push (counter + 1)
