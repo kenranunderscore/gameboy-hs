@@ -12,3 +12,5 @@ let-style: mixed
 in-style: no-space
 single-constraint-parens: never
 respectful: true
+fixities:
+  - infixl 1 &
