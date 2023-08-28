@@ -23,6 +23,7 @@ library
     , base
     , bytestring
     , mtl
+    , optics
 
   hs-source-dirs:   src-lib
   default-language: GHC2021
@@ -48,5 +49,6 @@ test-suite game-boy-emulator-hs-test
     , base
     , game-boy-emulator-hs
     , mtl
+    , optics
     , tasty
     , tasty-hunit

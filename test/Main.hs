@@ -4,6 +4,7 @@ module Main (main) where
 
 import Control.Monad.State.Strict
 import qualified Data.Array as Array
+import Optics
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -34,23 +35,23 @@ registerTests =
     testGroup
         "Unit tests for the CPU registers"
         [ testCase "Reading from BC" $ do
-            let r = emptyRegisters{b = 0xe, c = 0x7}
-            getBC r @?= 0x0e07
+            let r = emptyRegisters{_b = 0xe, _c = 0x7}
+            view bc r @?= 0x0e07
         , testCase "B and C correct after setting BC" $ do
-            let r = setBC emptyRegisters 0x131a
-            (r.b, r.c) @?= (0x13, 0x1a)
+            let r = set bc 0x131a emptyRegisters
+            (r._b, r._c) @?= (0x13, 0x1a)
         , testCase "Reading from DE" $ do
-            let r = emptyRegisters{d = 0xe, e = 0x7}
-            getDE r @?= 0x0e07
+            let r = emptyRegisters{_d = 0xe, _e = 0x7}
+            view de r @?= 0x0e07
         , testCase "D and E correct after setting BC" $ do
-            let r = setDE emptyRegisters 0x0f1e
-            (r.d, r.e) @?= (0x0f, 0x1e)
+            let r = set de 0x0f1e emptyRegisters
+            (r._d, r._e) @?= (0x0f, 0x1e)
         , testCase "Reading from HL" $ do
-            let r = emptyRegisters{h = 0xe, l = 0x7}
-            getHL r @?= 0x0e07
+            let r = emptyRegisters{_h = 0xe, _l = 0x7}
+            view hl r @?= 0x0e07
         , testCase "D and E correct after setting HL" $ do
-            let r = setHL emptyRegisters 0xf3fe
-            (r.h, r.l) @?= (0xf3, 0xfe)
+            let r = set hl 0xf3fe emptyRegisters
+            (r._h, r._l) @?= (0xf3, 0xfe)
         ]
 
 stackTests :: TestTree

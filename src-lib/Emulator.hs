@@ -2,6 +2,8 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NoFieldSelectors #-}
 
 module Emulator where
 
@@ -12,6 +14,7 @@ import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
 import qualified Data.Bits as Bits
 import Debug.Trace
 import qualified Numeric
+import Optics
 import qualified System.Environment as Environment
 
 import Memory
@@ -20,20 +23,22 @@ toHex :: Integral a => a -> String
 toHex n = "$" <> flip Numeric.showHex mempty n
 
 data Registers = Registers
-    { a :: U8
-    , b :: U8
-    , c :: U8
-    , d :: U8
-    , e :: U8
-    , h :: U8
-    , l :: U8
+    { _a :: U8
+    , _b :: U8
+    , _c :: U8
+    , _d :: U8
+    , _e :: U8
+    , _h :: U8
+    , _l :: U8
     , -- TODO: benchmark later whether a simple Haskell value can be used here
       -- to make everything more readable
-      f :: U8
-    , pc :: U16
-    , sp :: U16
+      _f :: U8
+    , _pc :: U16
+    , _sp :: U16
     }
     deriving stock (Eq)
+
+makeLenses ''Registers
 
 -- | Lower 4 bits of the F register.
 data Flag = Zero | Negative | HalfCarry | Carry
@@ -48,8 +53,11 @@ flagBit = \case
 
 modifyFlag' :: Flag -> Bool -> Registers -> Registers
 modifyFlag' flag on r =
-    let change = if on then Bits.setBit else Bits.clearBit
-    in r{f = change r.f (flagBit flag)}
+    let
+        change = if on then Bits.setBit else Bits.clearBit
+        bit = flagBit flag
+    in
+        r & f %~ flip change bit
 
 setFlag' :: Flag -> Registers -> Registers
 setFlag' flag r = modifyFlag' flag True r
@@ -58,89 +66,80 @@ clearFlag' :: Flag -> Registers -> Registers
 clearFlag' flag r = modifyFlag' flag False r
 
 hasFlag' :: Flag -> Registers -> Bool
-hasFlag' flag r = Bits.testBit r.f (flagBit flag)
+hasFlag' flag r = Bits.testBit r._f (flagBit flag)
 
 combineU8s :: U8 -> U8 -> U16
 combineU8s hi lo = (fromIntegral hi .<<. 8) .|. fromIntegral lo
 
 splitU16 :: U16 -> (U8, U8)
-splitU16 b = (fromIntegral (b .>>. 8), fromIntegral (b .&. 0xff))
+splitU16 n = (fromIntegral (n .>>. 8), fromIntegral (n .&. 0xff))
 
-getBC :: Registers -> U16
-getBC r = combineU8s r.b r.c
+combineRegisters :: Lens' Registers U8 -> Lens' Registers U8 -> Lens' Registers U16
+combineRegisters hiL loL =
+    lens
+        (\r -> combineU8s (view hiL r) (view loL r))
+        (\r n -> let (hi, lo) = splitU16 n in r & hiL .~ hi & loL .~ lo)
 
-setBC :: Registers -> U16 -> Registers
-setBC r n =
-    let (b1, b2) = splitU16 n
-    in r{b = b1, c = b2}
+bc :: Lens' Registers U16
+bc = combineRegisters b c
 
-getDE :: Registers -> U16
-getDE r = combineU8s r.d r.e
+de :: Lens' Registers U16
+de = combineRegisters d e
 
-setDE :: Registers -> U16 -> Registers
-setDE r n =
-    let (b1, b2) = splitU16 n
-    in r{d = b1, e = b2}
-
-getHL :: Registers -> U16
-getHL r = combineU8s r.h r.l
-
-setHL :: Registers -> U16 -> Registers
-setHL r n =
-    let (b1, b2) = splitU16 n
-    in r{h = b1, l = b2}
+hl :: Lens' Registers U16
+hl = combineRegisters h l
 
 {- FOURMOLU_DISABLE -}
 instance Show Registers where
     show r = mconcat
-        [ "A  = " , toHex r.a
-        , "\nF  = " , toHex r.f
-        , "\nB  = " , toHex r.b
-        , "\nC  = " , toHex r.c , "    BC = " , toHex (getBC r)
-        , "\nD  = " , toHex r.d
-        , "\nE  = " , toHex r.e , "    DE = " , toHex (getDE r)
-        , "\nH  = " , toHex r.h
-        , "\nL  = " , toHex r.l , "    HL = " , toHex (getHL r)
-        , "\nPC = " , toHex r.pc
-        , "\nSP = " , toHex r.sp
+        [ "A  = " , toHex (view a r)
+        , "\nF  = " , toHex (view f r)
+        , "\nB  = " , toHex (view b r)
+        , "\nC  = " , toHex (view c r) , "    BC = " , toHex (view bc r)
+        , "\nD  = " , toHex (view d r)
+        , "\nE  = " , toHex (view e r) , "    DE = " , toHex (view de r)
+        , "\nH  = " , toHex (view h r)
+        , "\nL  = " , toHex (view l r) , "    HL = " , toHex (view hl r)
+        , "\nPC = " , toHex (view pc r)
+        , "\nSP = " , toHex (view sp r)
         ]
 {- FOURMOLU_ENABLE -}
 
 data CPUState = CPUState
-    { registers :: Registers
-    , memory :: Memory
+    { _registers :: Registers
+    , _memory :: Memory
     }
     deriving stock (Show)
 
-programCounter :: CPUState -> U16
-programCounter = (.registers.pc)
+makeLenses ''CPUState
 
-stackPointer :: CPUState -> U16
-stackPointer = (.registers.sp)
+programCounter :: Lens' CPUState U16
+programCounter = registers % pc
+
+stackPointer :: Lens' CPUState U16
+stackPointer = registers % sp
 
 mkInitialState :: Memory -> CPUState
 mkInitialState mem = CPUState initialRegisters mem
   where
     initialRegisters =
         Registers
-            { a = 0
-            , b = 0
-            , c = 0
-            , d = 0
-            , e = 0
-            , h = 0
-            , l = 0
-            , f = 0
-            , pc = 0x100 -- start without BIOS for now
-            , sp = 0xfffe
+            { _a = 0
+            , _b = 0
+            , _c = 0
+            , _d = 0
+            , _e = 0
+            , _h = 0
+            , _l = 0
+            , _f = 0
+            , _pc = 0x100 -- start without BIOS for now
+            , _sp = 0xfffe
             }
 
 type CPU m = MonadState CPUState m
 
 advance :: CPU m => U16 -> m ()
-advance n =
-    modify'
-        (\s -> s{registers = s.registers{pc = s.registers.pc + n}})
+advance n = modifying' programCounter (+ n)
 
 data Instr
     = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
@@ -178,30 +177,30 @@ data Instr
 
 instance Show Instr where
     show = \case
-        LD_SP_u16 u16 -> "LD SP," <> toHex u16
-        LD_HL_u16 u16 -> "LD HL," <> toHex u16
+        LD_SP_u16 n -> "LD SP," <> toHex n
+        LD_HL_u16 n -> "LD HL," <> toHex n
         LD_derefHL_A -> "LD (HL),A"
         LD_HLminus_A -> "LD (HL-),A"
         LD_HLplus_A -> "LD (HL+),A"
-        LD_A_u8 u8 -> "LD A," <> toHex u8
+        LD_A_u8 n -> "LD A," <> toHex n
         LD_A_derefDE -> "LD A,(DE)"
-        LD_A_FF00plusU8 u8 -> "LD A,($ff00+" <> toHex u8 <> ")"
+        LD_A_FF00plusU8 n -> "LD A,($ff00+" <> toHex n <> ")"
         LD_B_A -> "LD B,A"
-        LD_B_u8 u8 -> "LD B," <> toHex u8
+        LD_B_u8 n -> "LD B," <> toHex n
         LD_C_A -> "LD C,A"
-        LD_C_u8 u8 -> "LD C," <> toHex u8
-        LD_DE_u16 u16 -> "LD DE," <> toHex u16
+        LD_C_u8 n -> "LD C," <> toHex n
+        LD_DE_u16 n -> "LD DE," <> toHex n
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
-        LD_FF00plusU8_A u8 -> "LD ($ff00+" <> toHex u8 <> "),A"
+        LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
         BIT_7_H -> "BIT 7,H"
-        JR_NZ_i8 i8 -> "JR NZ," <> show i8
-        JP_u16 u16 -> "JP " <> toHex u16
+        JR_NZ_i8 n -> "JR NZ," <> show n
+        JP_u16 n -> "JP " <> toHex n
         XOR_A -> "XOR A"
         INC_C -> "INC C"
         INC_HL -> "INC HL"
         DEC_B -> "DEC B"
         DEC_C -> "DEC C"
-        CALL u16 -> "CALL " <> toHex u16
+        CALL n -> "CALL " <> toHex n
         RET -> "RET"
         PUSH_BC -> "PUSH BC"
         POP_BC -> "POP BC"
@@ -209,7 +208,7 @@ instance Show Instr where
         RL_C -> "RL C"
         DI -> "DI"
         NOP -> "NOP"
-        CP_A_u8 u8 -> "CP A," <> toHex u8
+        CP_A_u8 n -> "CP A," <> toHex n
 
 fetchU8 :: Memory -> U16 -> U8
 fetchU8 = (!)
@@ -220,89 +219,88 @@ fetchI8 mem = fromIntegral . fetchU8 mem
 fetchU16 :: Memory -> U16 -> U16
 fetchU16 mem addr = do
     let
-        b1 = mem ! (addr + 1) -- little Endian
-        b2 = mem ! addr
-    (fromIntegral b1 .<<. 8) .|. fromIntegral b2
+        hi = mem ! (addr + 1) -- little Endian
+        lo = mem ! addr
+    (fromIntegral hi .<<. 8) .|. fromIntegral lo
 
 fetch :: CPU m => m Instr
 fetch = do
-    counter <- gets programCounter
-    mem <- gets memory
+    counter <- gets (view programCounter)
+    mem <- gets (view memory)
     advance 1
-    res <- case mem ! counter of
+    case mem ! counter of
         0 -> pure NOP
         0x05 -> pure DEC_B
         0x06 -> do
-            let u8 = fetchU8 mem (counter + 1)
+            let n = fetchU8 mem (counter + 1)
             advance 1
-            pure $ LD_B_u8 u8
+            pure $ LD_B_u8 n
         0x0c -> pure INC_C
         0x0d -> pure DEC_C
         0x0e -> do
-            let u8 = fetchU8 mem (counter + 1)
+            let n = fetchU8 mem (counter + 1)
             advance 1
-            pure $ LD_C_u8 u8
+            pure $ LD_C_u8 n
         0x11 -> do
-            let u16 = fetchU16 mem (counter + 1)
+            let n = fetchU16 mem (counter + 1)
             advance 2
-            pure $ LD_DE_u16 u16
+            pure $ LD_DE_u16 n
         0x17 -> pure RLA
         0x1a -> pure LD_A_derefDE
         0x20 -> do
-            let i8 = fetchI8 mem (counter + 1)
+            let n = fetchI8 mem (counter + 1)
             advance 1
-            pure $ JR_NZ_i8 i8
+            pure $ JR_NZ_i8 n
         0x21 -> do
-            let u16 = fetchU16 mem (counter + 1)
+            let n = fetchU16 mem (counter + 1)
             advance 2
-            pure $ LD_HL_u16 u16
+            pure $ LD_HL_u16 n
         0x22 -> pure LD_HLplus_A
         0x23 -> pure INC_HL
         0x31 -> do
-            let u16 = fetchU16 mem (counter + 1)
+            let n = fetchU16 mem (counter + 1)
             advance 2
-            pure $ LD_SP_u16 u16
+            pure $ LD_SP_u16 n
         0x32 -> pure LD_HLminus_A
         0x3e -> do
-            let u8 = fetchU8 mem (counter + 1)
+            let n = fetchU8 mem (counter + 1)
             advance 1
-            pure $ LD_A_u8 u8
+            pure $ LD_A_u8 n
         0x47 -> pure LD_B_A
         0x4f -> pure LD_C_A
         0x77 -> pure LD_derefHL_A
         0xaf -> pure XOR_A
         0xc1 -> pure POP_BC
         0xc3 -> do
-            let u16 = fetchU16 mem (counter + 1)
+            let n = fetchU16 mem (counter + 1)
             advance 2
-            pure $ JP_u16 u16
+            pure $ JP_u16 n
         0xc5 -> pure PUSH_BC
         0xc9 -> pure RET
         0xcb -> fetchPrefixed mem
         0xcd -> do
-            let u16 = fetchU16 mem (counter + 1)
+            let n = fetchU16 mem (counter + 1)
             advance 2
-            pure $ CALL u16
+            pure $ CALL n
         0xe0 -> do
-            let u8 = fetchU8 mem (counter + 1)
+            let n = fetchU8 mem (counter + 1)
             advance 1
-            pure $ LD_FF00plusU8_A u8
+            pure $ LD_FF00plusU8_A n
         0xe2 -> pure LD_FF00plusC_A
         0xf0 -> do
-            let u8 = fetchU8 mem (counter + 1)
+            let n = fetchU8 mem (counter + 1)
             advance 1
-            pure $ LD_A_FF00plusU8 u8
+            pure $ LD_A_FF00plusU8 n
         0xf3 -> pure DI
         0xfe -> do
-            let u8 = fetchU8 mem (counter + 1)
+            let n = fetchU8 mem (counter + 1)
             advance 1
-            pure $ CP_A_u8 u8
-        b -> error $ "unknown opcode: " <> toHex b
-    pure res
+            pure $ CP_A_u8 n
+        unknown -> error $ "unknown opcode: " <> toHex unknown
 
 fetchPrefixed :: CPU m => Memory -> m Instr
 fetchPrefixed mem = do
-    byte <- (mem !) <$> gets (.registers.pc)
+    byte <- (mem !) <$> gets (view programCounter)
     advance 1
     case byte of
         0x11 -> pure RL_C
@@ -314,12 +312,13 @@ push n = do
     -- TODO: correct SP?  Cinoop and very-lazy-boy decrement before writing to
     -- the new location, but wouldn't that prevent the last address from ever
     -- being used?
-    modify' $ \s ->
-        trace ("    pushed " <> toHex n) $
-            s
-                { registers = s.registers{sp = s.registers.sp - 2}
-                , memory = s.memory // [(s.registers.sp - 2, lo), (s.registers.sp - 1, hi)]
-                }
+    modify'
+        ( \s ->
+            let curr = view stackPointer s
+            in s
+                & registers % sp %~ (\x -> x - 2)
+                & memory %~ (// [(curr - 2, lo), (curr - 1, hi)])
+        )
   where
     (hi, lo) = splitU16 n
 
@@ -327,10 +326,10 @@ pop :: CPU m => m U16
 pop = do
     -- TODO: do I have to zero the popped memory location?
     s <- get
-    put s{registers = s.registers{sp = s.registers.sp + 2}}
+    put (s & registers % sp %~ (+ 2))
     let
-        lo = s.memory ! s.registers.sp
-        hi = s.memory ! (s.registers.sp + 1)
+        lo = view memory s ! view stackPointer s
+        hi = view memory s ! (view stackPointer s + 1)
         n = combineU8s hi lo
     traceM $ "    popped " <> toHex n
     pure n
@@ -338,130 +337,130 @@ pop = do
 execute :: CPU m => Instr -> m ()
 execute = \case
     NOP -> pure ()
-    XOR_A -> modify' $ \s ->
-        s{registers = s.registers{a = 0}}
-    LD_SP_u16 u16 -> modify' $ \s ->
-        s{registers = s.registers{sp = u16}}
-    LD_HL_u16 u16 -> modify' $ \s ->
-        s{registers = setHL s.registers u16}
+    XOR_A ->
+        assign' (registers % a) 0
+    LD_SP_u16 n ->
+        assign' (registers % sp) n
+    LD_HL_u16 n ->
+        assign' (registers % hl) n
     LD_HLminus_A -> modify' $ \s ->
-        let hl = getHL s.registers
-        in s
-            { registers = setHL s.registers (hl - 1)
-            , memory = s.memory // [(hl, s.registers.a)]
-            }
+        s
+            & registers % hl %~ (\x -> x - 1)
+            & memory %~ (// [(view (registers % hl) s, s ^. registers % a)])
     LD_HLplus_A -> modify' $ \s ->
-        let hl = getHL s.registers
-        in s
-            { registers = setHL s.registers (hl + 1)
-            , memory = s.memory // [(hl, s.registers.a)]
-            }
+        s
+            & registers % hl %~ (+ 1)
+            & memory %~ (// [(view (registers % hl) s, s ^. registers % a)])
     LD_A_derefDE -> modify' $ \s ->
-        s{registers = s.registers{a = s.memory ! getDE s.registers}}
-    LD_A_FF00plusU8 u8 -> modify' $ \s ->
-        s{registers = s.registers{a = s.memory ! 0xff00 + u8}}
-    LD_A_u8 u8 -> modify' $ \s ->
-        s{registers = s.registers{a = u8}}
+        let addr = s ^. registers % de
+        in s & registers % a .~ (view memory s ! addr)
+    LD_A_FF00plusU8 n -> modify' $ \s ->
+        s & registers % a .~ (view memory s ! 0xff00 + n)
+    LD_A_u8 n ->
+        assign' (registers % a) n
     LD_B_A -> modify' $ \s ->
-        s{registers = s.registers{b = s.registers.a}}
-    LD_B_u8 u8 -> modify' $ \s ->
-        s{registers = s.registers{b = u8}}
+        s & registers % b .~ (s ^. registers % a)
+    LD_B_u8 n ->
+        assign' (registers % b) n
     LD_C_A -> modify' $ \s ->
-        s{registers = s.registers{c = s.registers.a}}
-    LD_C_u8 u8 -> modify' $ \s ->
-        s{registers = s.registers{c = u8}}
-    LD_DE_u16 u16 -> modify' $ \s ->
-        s{registers = setDE s.registers u16}
+        s & registers % c .~ (s ^. registers % a)
+    LD_C_u8 n ->
+        assign' (registers % c) n
+    LD_DE_u16 n ->
+        assign' (registers % de) n
     LD_FF00plusC_A -> modify' $ \s ->
-        s{memory = s.memory // [(0xff00 + fromIntegral s.registers.c, s.registers.a)]}
-    LD_FF00plusU8_A u8 -> modify' $ \s ->
-        s{memory = s.memory // [(0xff00 + fromIntegral u8, s.registers.a)]}
+        let c' = s ^. registers % c
+            a' = s ^. registers % a
+        in s & memory %~ (// [(0xff00 + fromIntegral c', a')])
+    LD_FF00plusU8_A n -> modify' $ \s ->
+        s & memory %~ (// [(0xff00 + fromIntegral n, s ^. registers % a)])
     LD_derefHL_A -> modify' $ \s ->
-        let hl = getHL s.registers in s{memory = s.memory // [(hl, s.registers.a)]}
+        s & memory %~ (// [(s ^. registers % hl, s ^. registers % a)])
     BIT_7_H -> modify' $ \s ->
         let
-            r' = setFlag' HalfCarry $ clearFlag' Negative s.registers
-            bitIsSet = Bits.testBit s.registers.h 7
+            r' = setFlag' HalfCarry $ clearFlag' Negative s._registers
+            bitIsSet = Bits.testBit (s ^. registers % h) 7
         in
-            s{registers = modifyFlag' Zero (not bitIsSet) r'}
-    JR_NZ_i8 i8 -> modify' $ \s ->
-        if not $ hasFlag' Zero s.registers
-            then s{registers = s.registers{pc = s.registers.pc + fromIntegral i8}}
+            s & registers .~ modifyFlag' Zero (not bitIsSet) r'
+    JR_NZ_i8 n -> modify' $ \s ->
+        if not $ hasFlag' Zero (view registers s)
+            then s & programCounter %~ (+ fromIntegral n)
             else s
-    JP_u16 u16 -> modify' $ \s ->
-        s{registers = s.registers{pc = u16}}
-    INC_C -> modify' $ \s ->
-        s{registers = s.registers{c = s.registers.c + 1}}
-    INC_HL -> modify' $ \s ->
-        s{registers = setHL s.registers (getHL s.registers + 1)}
+    JP_u16 n ->
+        assign' (registers % pc) n
+    INC_C ->
+        modifying' (registers % c) (+ 1)
+    INC_HL ->
+        modifying' (registers % hl) (+ 1)
     DEC_B -> modify' $ \s ->
-        let result = s.registers.b - 1
+        let old = s ^. registers % b
+            result = old - 1
         in s
-            { registers =
+            { _registers =
                 modifyFlag' Zero (result == 0) $
                     setFlag' Negative $
-                        modifyFlag' HalfCarry (s.registers.b .&. 0x0f == 0) $
-                            s.registers{b = result}
+                        modifyFlag' HalfCarry (old .&. 0x0f == 0) $
+                            s._registers{_b = result}
             }
     DEC_C -> modify' $ \s ->
-        let result = s.registers.c - 1
+        let old = s ^. registers % c
+            result = old - 1
         in s
-            { registers =
+            { _registers =
                 modifyFlag' Zero (result == 0) $
                     setFlag' Negative $
-                        modifyFlag' HalfCarry (s.registers.c .&. 0x0f == 0) $
-                            s.registers{c = result}
+                        modifyFlag' HalfCarry (old .&. 0x0f == 0) $
+                            s._registers{_c = result}
             }
-    CALL u16 -> do
-        pc <- gets programCounter
-        push (pc + 1)
-        traceM $ "    CALL " <> toHex u16
-        modify' $ \s -> s{registers = s.registers{pc = u16}}
+    CALL n -> do
+        counter <- gets (view programCounter)
+        push (counter + 1)
+        assign' (registers % pc) n
     RET -> do
         addr <- pop
-        traceM $ "    RET " <> toHex addr
-        modify' $ \s -> s{registers = s.registers{pc = addr}}
+        assign' (registers % pc) addr
     PUSH_BC -> do
-        bc <- gets (getBC . registers)
-        push bc
+        n <- gets (view (registers % bc))
+        push n
     POP_BC -> do
-        u16 <- pop
-        modify' $ \s -> s{registers = setBC s.registers u16}
+        n <- pop
+        assign' (registers % bc) n
     RLA -> modify' $ \s ->
         let
-            carry = if hasFlag' Carry s.registers then 1 else 0
-            carry' = Bits.testBit s.registers.a 7
-            a' = Bits.shiftL s.registers.a 1 + carry
+            carry = if hasFlag' Carry (view registers s) then 1 else 0
+            carry' = Bits.testBit (s ^. registers % a) 7
+            a' = Bits.shiftL (s ^. registers % a) 1 + carry
         in
             s
-                { registers =
+                { _registers =
                     modifyFlag' Carry carry' $
                         clearFlag' Zero $ -- TODO: check: some do this, but manual says it changes
                             clearFlag' Negative $
                                 clearFlag' HalfCarry $
-                                    s.registers{a = a'}
+                                    s._registers{_a = a'}
                 }
     RL_C -> modify' $ \s ->
         let
-            carry = if hasFlag' Carry s.registers then 1 else 0
-            carry' = Bits.testBit s.registers.c 7
-            c' = Bits.shiftL s.registers.c 1 + carry
+            carry = if hasFlag' Carry (view registers s) then 1 else 0
+            carry' = Bits.testBit (s ^. registers % c) 7
+            c' = Bits.shiftL (s ^. registers % c) 1 + carry
         in
             s
-                { registers =
+                { _registers =
                     modifyFlag' Carry carry' $
                         modifyFlag' Zero (c' == 0) $
                             clearFlag' Negative $
                                 clearFlag' HalfCarry $
-                                    s.registers{c = c'}
+                                    s._registers{_c = c'}
                 }
     DI -> pure () -- TODO: disable interrupts
-    CP_A_u8 u8 -> modify' $ \s ->
-        let r' = setFlag' Negative s.registers
+    CP_A_u8 n -> modify' $ \s ->
+        let r' = setFlag' Negative (view registers s)
+            val = s ^. registers % a
         in s
-            { registers =
-                modifyFlag' Zero (s.registers.a == u8) $
-                    modifyFlag' Carry (s.registers.a < u8) $
+            { _registers =
+                modifyFlag' Zero (val == n) $
+                    modifyFlag' Carry (val < n) $
                         -- modifyFlag' HalfCarry () $ -- TODO: implement
                         r'
             }
@@ -484,4 +483,4 @@ startup = loop
         s <- get
         instr <- fetch
         execute instr
-        liftIO $ putStrLn $ toHex s.registers.pc <> " :  " <> show instr
+        liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
