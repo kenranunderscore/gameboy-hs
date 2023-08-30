@@ -11,11 +11,11 @@ import Control.Monad
 import Control.Monad.State.Strict
 import Data.Array ((!), (//))
 import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
-import qualified Data.Bits as Bits
+import Data.Bits qualified as Bits
 import Debug.Trace
-import qualified Numeric
+import Numeric qualified
 import Optics
-import qualified System.Environment as Environment
+import System.Environment qualified as Environment
 
 import Memory
 
