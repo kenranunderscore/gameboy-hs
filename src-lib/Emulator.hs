@@ -329,10 +329,7 @@ fetchPrefixed mem = do
         s -> error $ "unknown prefixed byte: " <> toHex s
 
 push :: CPU m => U16 -> m ()
-push n = do
-    -- TODO: correct SP?  Cinoop and very-lazy-boy decrement before writing to
-    -- the new location, but wouldn't that prevent the last address from ever
-    -- being used?
+push n =
     modify'
         ( \s ->
             let curr = view stackPointer s
