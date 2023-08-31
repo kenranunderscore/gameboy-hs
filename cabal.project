@@ -1,0 +1,11 @@
+packages: .
+
+jobs: $ncpus
+
+library-profiling: False
+
+test-show-details: streaming
+test-options: "--color=always"
+
+package *
+        ghc-options: -O0
