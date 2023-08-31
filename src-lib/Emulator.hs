@@ -301,9 +301,9 @@ fetch = do
 
 fetchPrefixed :: CPU m => MemoryBus -> m Instr
 fetchPrefixed bus = do
-    byte <- readU16 bus <$> gets (view programCounter)
+    n <- readU16 bus <$> gets (view programCounter)
     advance 1
-    case byte of
+    case n of
         0x11 -> pure RL_C
         0x7c -> pure BIT_7_H
         s -> error $ "unknown prefixed byte: " <> toHex s

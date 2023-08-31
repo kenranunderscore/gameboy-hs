@@ -36,6 +36,14 @@ data MemoryBus = MemoryBus
 
 makeLenses ''MemoryBus
 
+-- | Target the n-th byte of a memory array.  This is (of course) only a lens if
+-- and only if the index is inside the boundaries of the array.
+byte :: U16 -> Lens' Memory U8
+byte n =
+    lens
+        (\mem -> mem Array.! n)
+        (\mem x -> mem // [(n, x)])
+
 readByte :: MemoryBus -> U16 -> U8
 readByte bus addr
     | addr < 0x8000 = bus._cartridge ! addr
@@ -59,13 +67,16 @@ writeByte addr n bus
     | addr < 0xfe00 = bus -- echoes WRAM
     | addr < 0xfea0 = writeTo oam 0xfe00
     | addr < 0xff00 = bus -- forbidden area
-    | addr < 0xff80 = writeTo io 0xff00
+    | addr < 0xff80 = writeIO addr n bus
     | addr < 0xffff = writeTo hram 0xff80
     | addr == 0xffff = bus & interrupts .~ n
     | otherwise = error "the impossible happened"
   where
     writeTo dest offset =
-        bus & dest %~ (// [(addr - offset, n)])
+        bus & dest % byte (addr - offset) .~ n
+
+writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
+writeIO addr n bus = bus & io % byte (addr - 0xff00) .~ n
 
 readU16 :: MemoryBus -> U16 -> U16
 readU16 bus addr =
