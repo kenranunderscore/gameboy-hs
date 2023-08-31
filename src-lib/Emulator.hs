@@ -162,7 +162,7 @@ data Instr
     | LD_derefHL_A
     | LD_HLminus_A
     | LD_HLplus_A
-    | LD_r_r TargetRegister TargetRegister
+    | LD TargetRegister TargetRegister
     | BIT Int TargetRegister
     | BIT_n_derefHL Int
     | JP_u16 U16
@@ -194,7 +194,7 @@ instance Show Instr where
         LD_A_u8 n -> "LD A," <> toHex n
         LD_A_derefDE -> "LD A,(DE)"
         LD_A_FF00plusU8 n -> "LD A,($ff00+" <> toHex n <> ")"
-        LD_r_r r r' -> "LD " <> show r <> "," <> show r'
+        LD r r' -> "LD " <> show r <> "," <> show r'
         LD_B_u8 n -> "LD B," <> toHex n
         LD_C_u8 n -> "LD C," <> toHex n
         LD_DE_u16 n -> "LD DE," <> toHex n
@@ -279,9 +279,56 @@ fetch = do
         0x3c -> pure $ INC A
         0x3d -> pure $ DEC A
         0x3e -> LD_A_u8 <$> fetchByteM
-        0x47 -> pure $ LD_r_r B A
-        0x4f -> pure $ LD_r_r C A
+        0x40 -> pure $ LD B B
+        0x41 -> pure $ LD B C
+        0x42 -> pure $ LD B D
+        0x43 -> pure $ LD B E
+        0x44 -> pure $ LD B H
+        0x45 -> pure $ LD B L
+        0x47 -> pure $ LD B A
+        0x48 -> pure $ LD C B
+        0x49 -> pure $ LD C C
+        0x4a -> pure $ LD C D
+        0x4b -> pure $ LD C E
+        0x4c -> pure $ LD C H
+        0x4d -> pure $ LD C L
+        0x4f -> pure $ LD C A
+        0x50 -> pure $ LD D B
+        0x51 -> pure $ LD D C
+        0x52 -> pure $ LD D D
+        0x53 -> pure $ LD D E
+        0x54 -> pure $ LD D H
+        0x55 -> pure $ LD D L
+        0x57 -> pure $ LD D A
+        0x58 -> pure $ LD E B
+        0x59 -> pure $ LD E C
+        0x5a -> pure $ LD E D
+        0x5b -> pure $ LD E E
+        0x5c -> pure $ LD E H
+        0x5d -> pure $ LD E L
+        0x5f -> pure $ LD E A
+        0x60 -> pure $ LD H B
+        0x61 -> pure $ LD H C
+        0x62 -> pure $ LD H D
+        0x63 -> pure $ LD H E
+        0x64 -> pure $ LD H H
+        0x65 -> pure $ LD H L
+        0x67 -> pure $ LD H A
+        0x68 -> pure $ LD L B
+        0x69 -> pure $ LD L C
+        0x6a -> pure $ LD L D
+        0x6b -> pure $ LD L E
+        0x6c -> pure $ LD L H
+        0x6d -> pure $ LD L L
+        0x6f -> pure $ LD L A
         0x77 -> pure LD_derefHL_A
+        0x78 -> pure $ LD A B
+        0x79 -> pure $ LD A C
+        0x7a -> pure $ LD A D
+        0x7b -> pure $ LD A E
+        0x7c -> pure $ LD A H
+        0x7d -> pure $ LD A L
+        0x7f -> pure $ LD A A
         0xaf -> pure XOR_A
         0xc1 -> pure POP_BC
         0xc3 -> JP_u16 <$> fetchU16M
@@ -437,7 +484,7 @@ execute = \case
         assign' (registers % a) n
     LD_B_u8 n ->
         assign' (registers % b) n
-    LD_r_r r r' ->
+    LD r r' ->
         ld_r_r r r'
     LD_C_u8 n ->
         assign' (registers % c) n
