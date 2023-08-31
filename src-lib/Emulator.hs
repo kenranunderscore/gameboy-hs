@@ -164,6 +164,7 @@ data Instr
     | LD_HLplus_A
     | LD_r_r TargetRegister TargetRegister
     | BIT Int TargetRegister
+    | BIT_n_derefHL Int
     | JP_u16 U16
     | JR_NZ_i8 I8
     | XOR_A
@@ -200,6 +201,7 @@ instance Show Instr where
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
         LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
         BIT n r -> "BIT " <> show n <> "," <> show r
+        BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
         JR_NZ_i8 n -> "JR NZ," <> show n
         JP_u16 n -> "JP " <> toHex n
         XOR_A -> "XOR A"
@@ -300,7 +302,62 @@ fetchPrefixed bus = do
     advance 1
     case n of
         0x11 -> pure RL_C
+        0x48 -> pure $ BIT 1 B
+        0x49 -> pure $ BIT 1 C
+        0x4a -> pure $ BIT 1 D
+        0x4b -> pure $ BIT 1 E
+        0x4c -> pure $ BIT 1 H
+        0x4d -> pure $ BIT 1 L
+        0x4e -> pure $ BIT_n_derefHL 1
+        0x4f -> pure $ BIT 1 A
+        0x50 -> pure $ BIT 2 B
+        0x51 -> pure $ BIT 2 C
+        0x52 -> pure $ BIT 2 D
+        0x53 -> pure $ BIT 2 E
+        0x54 -> pure $ BIT 2 H
+        0x55 -> pure $ BIT 2 L
+        0x56 -> pure $ BIT_n_derefHL 2
+        0x57 -> pure $ BIT 2 A
+        0x58 -> pure $ BIT 3 B
+        0x59 -> pure $ BIT 3 C
+        0x5a -> pure $ BIT 3 D
+        0x5b -> pure $ BIT 3 E
+        0x5c -> pure $ BIT 3 H
+        0x5d -> pure $ BIT 3 L
+        0x5e -> pure $ BIT_n_derefHL 3
+        0x5f -> pure $ BIT 3 A
+        0x60 -> pure $ BIT 4 B
+        0x61 -> pure $ BIT 4 C
+        0x62 -> pure $ BIT 4 D
+        0x63 -> pure $ BIT 4 E
+        0x64 -> pure $ BIT 4 H
+        0x65 -> pure $ BIT 4 L
+        0x66 -> pure $ BIT_n_derefHL 4
+        0x67 -> pure $ BIT 4 A
+        0x68 -> pure $ BIT 5 B
+        0x69 -> pure $ BIT 5 C
+        0x6a -> pure $ BIT 5 D
+        0x6b -> pure $ BIT 5 E
+        0x6c -> pure $ BIT 5 H
+        0x6d -> pure $ BIT 5 L
+        0x6e -> pure $ BIT_n_derefHL 5
+        0x6f -> pure $ BIT 5 A
+        0x70 -> pure $ BIT 6 B
+        0x71 -> pure $ BIT 6 C
+        0x72 -> pure $ BIT 6 D
+        0x73 -> pure $ BIT 6 E
+        0x74 -> pure $ BIT 6 H
+        0x75 -> pure $ BIT 6 L
+        0x76 -> pure $ BIT_n_derefHL 6
+        0x77 -> pure $ BIT 6 A
+        0x78 -> pure $ BIT 7 B
+        0x79 -> pure $ BIT 7 C
+        0x7a -> pure $ BIT 7 D
+        0x7b -> pure $ BIT 7 E
         0x7c -> pure $ BIT 7 H
+        0x7d -> pure $ BIT 7 L
+        0x7e -> pure $ BIT_n_derefHL 7
+        0x7f -> pure $ BIT 7 A
         s -> error $ "unknown prefixed byte: " <> toHex s
 
 push :: CPU m => U16 -> m ()
@@ -405,6 +462,17 @@ execute = \case
                 %~ setFlag HalfCarry
                 . clearFlag Negative
                 . set (flag Zero) (not bitIsSet)
+    BIT_n_derefHL n -> modify' $ \s ->
+        let
+            p = s ^. registers % hl
+            val = readByte (view memoryBus s) p
+            bitIsSet = Bits.testBit val n
+        in
+            s
+                & registers
+                    %~ setFlag HalfCarry
+                    . clearFlag Negative
+                    . set (flag Zero) (not bitIsSet)
     JR_NZ_i8 n -> modify' $ \s ->
         if not $ hasFlag Zero s
             then s & programCounter %~ (+ fromIntegral n)
@@ -416,7 +484,7 @@ execute = \case
     INC_derefHL -> modify' $ \s ->
         let
             p = s ^. registers % hl
-            val = (readByte (view memoryBus s) p) + 1
+            val = readByte (view memoryBus s) p + 1
         in
             s & memoryBus %~ writeByte p val
     INC16 r ->
