@@ -9,3 +9,4 @@ test-options: "--color=always"
 
 package *
         ghc-options: -O0
+                     -Werror=incomplete-patterns
