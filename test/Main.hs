@@ -7,6 +7,7 @@ import Optics
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import BitStuff
 import Emulator
 import Memory
 

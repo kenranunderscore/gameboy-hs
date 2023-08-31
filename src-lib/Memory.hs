@@ -7,20 +7,12 @@ module Memory where
 import Control.Monad
 import Data.Array (Array, (!), (//))
 import Data.Array qualified as Array
-import Data.Bits ((.<<.), (.|.))
 import Data.ByteString qualified as BS
-import Data.Int
-import Data.Word
-import Numeric qualified
 import Optics
 
-type U8 = Word8
-type I8 = Int8
-type U16 = Word16
-type Memory = Array U16 U8
+import BitStuff
 
-toHex :: Integral a => a -> String
-toHex n = "$" <> flip Numeric.showHex mempty n
+type Memory = Array U16 U8
 
 data MemoryBus = MemoryBus
     { _cartridge :: Memory
@@ -77,11 +69,8 @@ writeByte addr n bus
 
 readU16 :: MemoryBus -> U16 -> U16
 readU16 bus addr =
-    let
-        hi = readByte bus (addr + 1) -- little Endian
-        lo = readByte bus addr
-    in
-        (fromIntegral hi .<<. 8) .|. fromIntegral lo
+    -- GameBoy is little-endian
+    combineBytes (readByte bus $ addr + 1) (readByte bus addr)
 
 {- FOURMOLU_DISABLE -}
 

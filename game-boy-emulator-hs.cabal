@@ -15,6 +15,7 @@ common warnings
 library
   import:           warnings
   exposed-modules:
+    BitStuff
     Emulator
     Memory
 

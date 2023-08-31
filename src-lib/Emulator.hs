@@ -9,11 +9,12 @@ module Emulator where
 
 import Control.Monad
 import Control.Monad.State.Strict
-import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
+import Data.Bits ((.&.))
 import Data.Bits qualified as Bits
 import Optics
 import System.Environment qualified as Environment
 
+import BitStuff
 import Memory
 
 data Registers = Registers
@@ -61,12 +62,6 @@ clearFlag' flag r = modifyFlag' flag False r
 
 hasFlag' :: Flag -> Registers -> Bool
 hasFlag' flag r = Bits.testBit r._f (flagBit flag)
-
-combineBytes :: U8 -> U8 -> U16
-combineBytes hi lo = (fromIntegral hi .<<. 8) .|. fromIntegral lo
-
-splitIntoBytes :: U16 -> (U8, U8)
-splitIntoBytes n = (fromIntegral (n .>>. 8), fromIntegral (n .&. 0xff))
 
 combineRegisters :: Lens' Registers U8 -> Lens' Registers U8 -> Lens' Registers U16
 combineRegisters hiL loL =
