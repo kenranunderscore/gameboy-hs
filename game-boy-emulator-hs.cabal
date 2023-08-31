@@ -18,6 +18,7 @@ library
     BitStuff
     Emulator
     Memory
+    PPU
 
   build-depends:
     , array
