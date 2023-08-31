@@ -163,7 +163,7 @@ data Instr
     | LD_HLminus_A
     | LD_HLplus_A
     | LD_r_r TargetRegister TargetRegister
-    | BIT_7_H
+    | BIT Int TargetRegister
     | JP_u16 U16
     | JR_NZ_i8 I8
     | XOR_A
@@ -199,7 +199,7 @@ instance Show Instr where
         LD_DE_u16 n -> "LD DE," <> toHex n
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
         LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
-        BIT_7_H -> "BIT 7,H"
+        BIT n r -> "BIT " <> show n <> "," <> show r
         JR_NZ_i8 n -> "JR NZ," <> show n
         JP_u16 n -> "JP " <> toHex n
         XOR_A -> "XOR A"
@@ -300,7 +300,7 @@ fetchPrefixed bus = do
     advance 1
     case n of
         0x11 -> pure RL_C
-        0x7c -> pure BIT_7_H
+        0x7c -> pure $ BIT 7 H
         s -> error $ "unknown prefixed byte: " <> toHex s
 
 push :: CPU m => U16 -> m ()
@@ -398,8 +398,8 @@ execute = \case
     LD_derefHL_A -> modify' $ \s ->
         let a' = s ^. registers % a
         in s & memoryBus %~ writeByte (s ^. registers % hl) a'
-    BIT_7_H -> modify' $ \s ->
-        let bitIsSet = Bits.testBit (s ^. registers % h) 7
+    BIT n r -> modify' $ \s ->
+        let bitIsSet = Bits.testBit (s ^. registers % targetL r) n
         in s
             & registers
                 %~ setFlag HalfCarry
