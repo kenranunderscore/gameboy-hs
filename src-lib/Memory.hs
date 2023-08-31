@@ -1,16 +1,87 @@
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NoFieldSelectors #-}
+
 module Memory where
 
 import Control.Monad
-import Data.Array (Array)
+import Data.Array (Array, (!), (//))
 import Data.Array qualified as Array
+import Data.Bits ((.<<.), (.|.))
 import Data.ByteString qualified as BS
 import Data.Int
 import Data.Word
+import Numeric qualified
+import Optics
 
 type U8 = Word8
 type I8 = Int8
 type U16 = Word16
-type Memory = Array Word16 U8
+type Memory = Array U16 U8
+
+toHex :: Integral a => a -> String
+toHex n = "$" <> flip Numeric.showHex mempty n
+
+data MemoryBus = MemoryBus
+    { _cartridge :: Memory
+    -- ^ Cartridge RAM: $0000 - $7fff
+    , _vram :: Memory
+    -- ^ VRAM: $8000 - $9fff
+    , _sram :: Memory
+    -- ^ SRAM: $a000 - $bfff
+    , _wram :: Memory
+    -- ^ WRAM: $c000 - $dfff
+    , _oam :: Memory
+    -- ^ Object attribute memory: $fe00 - $fe9f
+    , _io :: Memory
+    -- ^ IO registers: $ff00 - $ff7f
+    , _hram :: Memory
+    -- ^ HRAM: $ff80 - $fffe
+    , _interrupts :: U8
+    -- ^ Interrupt register: $ffff
+    }
+    deriving (Show)
+
+makeLenses ''MemoryBus
+
+readByte :: MemoryBus -> U16 -> U8
+readByte bus addr
+    | addr < 0x8000 = bus._cartridge ! addr
+    | addr < 0xa000 = bus._vram ! (addr - 0x8000)
+    | addr < 0xc000 = bus._sram ! (addr - 0xa000)
+    | addr < 0xe000 = bus._wram ! (addr - 0xc000)
+    | addr < 0xfe00 = bus._wram ! (addr - 0xc000) -- echoes WRAM
+    | addr < 0xfea0 = bus._oam ! (addr - 0xfe00)
+    | addr < 0xff00 = 0 -- forbidden area
+    | addr < 0xff80 = bus._io ! (addr - 0xff00)
+    | addr < 0xffff = bus._hram ! (addr - 0xff80)
+    | addr == 0xffff = bus._interrupts
+    | otherwise = error "the impossible happened"
+
+writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
+writeByte addr n bus
+    | addr < 0x8000 = writeTo cartridge 0
+    | addr < 0xa000 = writeTo vram 0x8000
+    | addr < 0xc000 = writeTo sram 0xa000
+    | addr < 0xe000 = writeTo wram 0xc000
+    | addr < 0xfe00 = bus -- echoes WRAM
+    | addr < 0xfea0 = writeTo oam 0xfe00
+    | addr < 0xff00 = bus -- forbidden area
+    | addr < 0xff80 = writeTo io 0xff00
+    | addr < 0xffff = writeTo hram 0xff80
+    | addr == 0xffff = bus & interrupts .~ n
+    | otherwise = error "the impossible happened"
+  where
+    writeTo dest offset =
+        bus & dest %~ (// [(addr - offset, n)])
+
+readU16 :: MemoryBus -> U16 -> U16
+readU16 bus addr =
+    let
+        hi = readByte bus (addr + 1) -- little Endian
+        lo = readByte bus addr
+    in
+        (fromIntegral hi .<<. 8) .|. fromIntegral lo
 
 {- FOURMOLU_DISABLE -}
 
@@ -36,10 +107,34 @@ bios = Array.listArray (0, 0xff) $
 
 {- FOURMOLU_ENABLE -}
 
-loadCartridge :: FilePath -> IO Memory
-loadCartridge path = do
+loadCartridgeFromFile :: FilePath -> IO Memory
+loadCartridgeFromFile path = do
     bytes <- BS.readFile path
     let len = BS.length bytes
-    when (len > 0x10000) (fail $ "Unexpected cartridge size: " <> show len)
+    when (len > 0x8000) (fail $ "Unexpected cartridge size: " <> show len)
     let padded = BS.unpack bytes <> replicate (0x10000 - len) 0
     pure $ Array.listArray (0, 0xffff) padded
+
+defaultMemoryBus :: MemoryBus
+defaultMemoryBus =
+    -- TODO: set correct initial values
+    MemoryBus
+        { _interrupts = 0
+        , _hram = mkEmptyArray 0x80
+        , _io = mkEmptyArray 0x100
+        , _oam = mkEmptyArray 0x100
+        , _wram = mkEmptyArray 0x2000
+        , _sram = mkEmptyArray 0x2000
+        , _vram = mkEmptyArray 0x2000
+        , _cartridge = mkEmptyArray 0x8000
+        }
+
+mkEmptyArray :: U16 -> Array U16 U8
+mkEmptyArray len =
+    Array.listArray (0, len - 1) $
+        replicate (fromIntegral len) 0
+
+initializeMemoryBus :: FilePath -> IO MemoryBus
+initializeMemoryBus path = do
+    cart <- loadCartridgeFromFile path
+    pure $ set cartridge cart defaultMemoryBus

@@ -3,12 +3,12 @@
 module Main (main) where
 
 import Control.Monad.State.Strict
-import qualified Data.Array as Array
 import Optics
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Emulator
+import Memory
 
 main :: IO ()
 main = defaultMain tests
@@ -60,13 +60,11 @@ stackTests =
         "Unit tests for interaction with the memory-mapped stack"
         [ testCase "pop after push" $ do
             let
-                mem = Array.listArray (0, 0xffff) (replicate 0x10000 0)
                 action = push 0xabcd >> pop
-                res = evalState action (mkInitialState mem)
+                res = evalState action (mkInitialState defaultMemoryBus)
             toHex res @?= "$abcd"
         , testCase "Multiple pops after multiple pushes" $ do
             let
-                mem = Array.listArray (0, 0xffff) (replicate 0x10000 0)
                 action = do
                     push 0xb0a3
                     push 0x112e
@@ -75,7 +73,7 @@ stackTests =
                     x2 <- pop
                     x3 <- pop
                     pure (x1, x2, x3)
-                (x, y, z) = evalState action (mkInitialState mem)
+                (x, y, z) = evalState action (mkInitialState defaultMemoryBus)
             toHex x @?= "$7"
             toHex y @?= "$112e"
             toHex z @?= "$b0a3"

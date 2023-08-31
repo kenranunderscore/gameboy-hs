@@ -9,18 +9,12 @@ module Emulator where
 
 import Control.Monad
 import Control.Monad.State.Strict
-import Data.Array ((!), (//))
 import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
-import Debug.Trace
-import Numeric qualified
 import Optics
 import System.Environment qualified as Environment
 
 import Memory
-
-toHex :: Integral a => a -> String
-toHex n = "$" <> flip Numeric.showHex mempty n
 
 data Registers = Registers
     { _a :: U8
@@ -107,7 +101,7 @@ instance Show Registers where
 
 data CPUState = CPUState
     { _registers :: Registers
-    , _memory :: Memory
+    , _memoryBus :: MemoryBus
     }
     deriving stock (Show)
 
@@ -119,8 +113,8 @@ programCounter = registers % pc
 stackPointer :: Lens' CPUState U16
 stackPointer = registers % sp
 
-mkInitialState :: Memory -> CPUState
-mkInitialState mem = CPUState initialRegisters mem
+mkInitialState :: MemoryBus -> CPUState
+mkInitialState bus = CPUState initialRegisters bus
   where
     initialRegisters =
         Registers
@@ -235,37 +229,28 @@ instance Show Instr where
         NOP -> "NOP"
         CP_A_u8 n -> "CP A," <> toHex n
 
-fetchByte :: Memory -> U16 -> U8
-fetchByte = (!)
-
 fetchByteM :: CPU m => m U8
 fetchByteM = do
     s <- get
     advance 1
-    pure $ fetchByte (view memory s) (view programCounter s)
+    pure $ readByte (view memoryBus s) (view programCounter s)
 
 fetchI8M :: CPU m => m I8
-fetchI8M = fromIntegral <$> fetchByteM
-
-fetchU16 :: Memory -> U16 -> U16
-fetchU16 mem addr = do
-    let
-        hi = mem ! (addr + 1) -- little Endian
-        lo = mem ! addr
-    (fromIntegral hi .<<. 8) .|. fromIntegral lo
+fetchI8M = do
+    fromIntegral <$> fetchByteM
 
 fetchU16M :: CPU m => m U16
 fetchU16M = do
     s <- get
     advance 2
-    pure $ fetchU16 (view memory s) (view programCounter s)
+    pure $ readU16 (view memoryBus s) (view programCounter s)
 
 fetch :: CPU m => m Instr
 fetch = do
     counter <- gets (view programCounter)
-    mem <- gets (view memory)
+    bus <- gets (view memoryBus)
     advance 1
-    case mem ! counter of
+    case readByte bus counter of
         0 -> pure NOP
         0x03 -> pure $ INC16 BC
         0x04 -> pure $ INC B
@@ -310,7 +295,7 @@ fetch = do
         0xc3 -> JP_u16 <$> fetchU16M
         0xc5 -> pure PUSH_BC
         0xc9 -> pure RET
-        0xcb -> fetchPrefixed mem
+        0xcb -> fetchPrefixed bus
         0xcd -> CALL <$> fetchU16M
         0xe0 -> LD_FF00plusU8_A <$> fetchByteM
         0xe2 -> pure LD_FF00plusC_A
@@ -319,9 +304,9 @@ fetch = do
         0xfe -> CP_A_u8 <$> fetchByteM
         unknown -> error $ "unknown opcode: " <> toHex unknown
 
-fetchPrefixed :: CPU m => Memory -> m Instr
-fetchPrefixed mem = do
-    byte <- (mem !) <$> gets (view programCounter)
+fetchPrefixed :: CPU m => MemoryBus -> m Instr
+fetchPrefixed bus = do
+    byte <- readU16 bus <$> gets (view programCounter)
     advance 1
     case byte of
         0x11 -> pure RL_C
@@ -335,7 +320,7 @@ push n =
             let curr = view stackPointer s
             in s
                 & registers % sp %~ (\x -> x - 2)
-                & memory %~ (// [(curr - 2, lo), (curr - 1, hi)])
+                & memoryBus %~ (writeByte (curr - 1) hi . writeByte (curr - 2) lo)
         )
   where
     (hi, lo) = splitIntoBytes n
@@ -345,12 +330,7 @@ pop = do
     -- TODO: do I have to zero the popped memory location?
     s <- get
     put (s & registers % sp %~ (+ 2))
-    let
-        lo = view memory s ! view stackPointer s
-        hi = view memory s ! (view stackPointer s + 1)
-        n = combineBytes hi lo
-    traceM $ "    popped " <> toHex n
-    pure n
+    pure $ readU16 (view memoryBus s) (view stackPointer s)
 
 dec :: CPU m => Lens' Registers U8 -> m ()
 dec reg = modify' $ \s ->
@@ -396,16 +376,16 @@ execute = \case
     LD_HLminus_A -> modify' $ \s ->
         s
             & registers % hl %~ (\x -> x - 1)
-            & memory %~ (// [(view (registers % hl) s, s ^. registers % a)])
+            & memoryBus %~ writeByte (s ^. registers % hl) (s ^. registers % a)
     LD_HLplus_A -> modify' $ \s ->
         s
             & registers % hl %~ (+ 1)
-            & memory %~ (// [(view (registers % hl) s, s ^. registers % a)])
+            & memoryBus %~ writeByte (s ^. registers % hl) (s ^. registers % a)
     LD_A_derefDE -> modify' $ \s ->
         let addr = s ^. registers % de
-        in s & registers % a .~ (view memory s ! addr)
+        in s & registers % a .~ (readByte (view memoryBus s) addr)
     LD_A_FF00plusU8 n -> modify' $ \s ->
-        s & registers % a .~ (view memory s ! 0xff00 + n)
+        s & registers % a .~ (readByte (view memoryBus s) (0xff00 + fromIntegral n))
     LD_A_u8 n ->
         assign' (registers % a) n
     LD_B_u8 n ->
@@ -421,11 +401,13 @@ execute = \case
             c' = s ^. registers % c
             a' = s ^. registers % a
         in
-            s & memory %~ (// [(0xff00 + fromIntegral c', a')])
+            s & memoryBus %~ writeByte (0xff00 + fromIntegral c') a'
     LD_FF00plusU8_A n -> modify' $ \s ->
-        s & memory %~ (// [(0xff00 + fromIntegral n, s ^. registers % a)])
+        let a' = s ^. registers % a
+        in s & memoryBus %~ writeByte (0xff00 + fromIntegral n) a'
     LD_derefHL_A -> modify' $ \s ->
-        s & memory %~ (// [(s ^. registers % hl, s ^. registers % a)])
+        let a' = s ^. registers % a
+        in s & memoryBus %~ writeByte (s ^. registers % hl) a'
     BIT_7_H -> modify' $ \s ->
         let
             r' = setFlag' HalfCarry $ clearFlag' Negative s._registers
@@ -443,9 +425,9 @@ execute = \case
     INC_derefHL -> modify' $ \s ->
         let
             p = s ^. registers % hl
-            val = (view memory s ! p) + 1
+            val = (readByte (view memoryBus s) p) + 1
         in
-            s & memory %~ (// [(p, val)])
+            s & memoryBus %~ writeByte p val
     INC16 r ->
         modifying' (registers % (target16L r)) (+ 1)
     DEC r ->
@@ -453,10 +435,10 @@ execute = \case
     DEC_derefHL -> modify' $ \s ->
         let
             p = s ^. registers % hl
-            val = (view memory s ! p) - 1
+            val = (readByte (view memoryBus s) p) - 1
         in
             s
-                & memory %~ (// [(p, val)])
+                & memoryBus %~ writeByte p val
                 & registers
                     .~ ( modifyFlag' Zero (val == 0) $
                             setFlag' Negative $
@@ -527,8 +509,8 @@ run = do
     case args of
         [] -> fail "need path to ROM as first argument"
         (cartridgePath : _) -> do
-            mem <- loadCartridge cartridgePath
-            finalRegisters <- execStateT startup (mkInitialState mem)
+            bus <- initializeMemoryBus cartridgePath
+            finalRegisters <- execStateT startup (mkInitialState bus)
             putStrLn "done"
             print finalRegisters
 
