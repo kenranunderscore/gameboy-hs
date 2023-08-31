@@ -46,22 +46,14 @@ flagBit = \case
     HalfCarry -> 5
     Carry -> 4
 
-modifyFlag' :: Flag -> Bool -> Registers -> Registers
-modifyFlag' flag on r =
-    let
-        change = if on then Bits.setBit else Bits.clearBit
-        bit = flagBit flag
-    in
-        r & f %~ flip change bit
+flag :: Flag -> Lens' Registers Bool
+flag fl = f % bit (flagBit fl)
 
-setFlag' :: Flag -> Registers -> Registers
-setFlag' flag r = modifyFlag' flag True r
+clearFlag :: Flag -> Registers -> Registers
+clearFlag fl = set (flag fl) False
 
-clearFlag' :: Flag -> Registers -> Registers
-clearFlag' flag r = modifyFlag' flag False r
-
-hasFlag' :: Flag -> Registers -> Bool
-hasFlag' flag r = Bits.testBit r._f (flagBit flag)
+setFlag :: Flag -> Registers -> Registers
+setFlag fl = set (flag fl) True
 
 combineRegisters :: Lens' Registers U8 -> Lens' Registers U8 -> Lens' Registers U16
 combineRegisters hiL loL =
@@ -101,6 +93,9 @@ data CPUState = CPUState
     deriving stock (Show)
 
 makeLenses ''CPUState
+
+hasFlag :: Flag -> CPUState -> Bool
+hasFlag fl = view (registers % flag fl)
 
 programCounter :: Lens' CPUState U16
 programCounter = registers % pc
@@ -334,12 +329,12 @@ dec reg = modify' $ \s ->
         result = old - 1
     in
         s
-            { _registers =
-                modifyFlag' Zero (result == 0) $
-                    setFlag' Negative $
-                        modifyFlag' HalfCarry (old .&. 0x0f == 0) $
-                            (s._registers & reg .~ result)
-            }
+            & registers
+                %~ ( set (flag Zero) (result == 0)
+                        . setFlag Negative
+                        . set (flag HalfCarry) (old .&. 0x0f == 0)
+                        . set reg result
+                   )
 
 inc :: CPU m => Lens' Registers U8 -> m ()
 inc reg = modify' $ \s ->
@@ -348,12 +343,12 @@ inc reg = modify' $ \s ->
         result = old + 1
     in
         s
-            { _registers =
-                modifyFlag' Zero (result == 0) $
-                    clearFlag' Negative $
-                        modifyFlag' HalfCarry (old .&. 0x0f == 0x0f) $
-                            (s._registers & reg .~ result)
-            }
+            & registers
+                %~ ( set (flag Zero) (result == 0)
+                        . clearFlag Negative
+                        . set (flag HalfCarry) (old .&. 0x0f == 0x0f)
+                        . set reg result
+                   )
 
 ld_r_r :: CPU m => TargetRegister -> TargetRegister -> m ()
 ld_r_r r r' = modify' $ \s ->
@@ -404,13 +399,14 @@ execute = \case
         let a' = s ^. registers % a
         in s & memoryBus %~ writeByte (s ^. registers % hl) a'
     BIT_7_H -> modify' $ \s ->
-        let
-            r' = setFlag' HalfCarry $ clearFlag' Negative s._registers
-            bitIsSet = Bits.testBit (s ^. registers % h) 7
-        in
-            s & registers .~ modifyFlag' Zero (not bitIsSet) r'
+        let bitIsSet = Bits.testBit (s ^. registers % h) 7
+        in s
+            & registers
+                %~ setFlag HalfCarry
+                . clearFlag Negative
+                . set (flag Zero) (not bitIsSet)
     JR_NZ_i8 n -> modify' $ \s ->
-        if not $ hasFlag' Zero (view registers s)
+        if not $ hasFlag Zero s
             then s & programCounter %~ (+ fromIntegral n)
             else s
     JP_u16 n ->
@@ -430,16 +426,14 @@ execute = \case
     DEC_derefHL -> modify' $ \s ->
         let
             p = s ^. registers % hl
-            val = (readByte (view memoryBus s) p) - 1
+            val = readByte (view memoryBus s) p - 1
         in
             s
                 & memoryBus %~ writeByte p val
                 & registers
-                    .~ ( modifyFlag' Zero (val == 0) $
-                            setFlag' Negative $
-                                modifyFlag' HalfCarry ((val + 1) .&. 0x0f == 0) $
-                                    view registers s
-                       )
+                    %~ set (flag Zero) (val == 0)
+                    . setFlag Negative
+                    . set (flag HalfCarry) ((val + 1) .&. 0x0f == 0)
     DEC16 r ->
         modifying' (registers % (target16L r)) (\n -> n - 1)
     CALL n -> do
@@ -457,46 +451,38 @@ execute = \case
         assign' (registers % bc) n
     RLA -> modify' $ \s ->
         let
-            carry = if hasFlag' Carry (view registers s) then 1 else 0
+            carry = if hasFlag Carry s then 1 else 0
             carry' = Bits.testBit (s ^. registers % a) 7
             a' = Bits.shiftL (s ^. registers % a) 1 + carry
         in
             s
-                { _registers =
-                    modifyFlag' Carry carry' $
-                        clearFlag' Zero $ -- TODO: check: some do this, but manual says it changes
-                            clearFlag' Negative $
-                                clearFlag' HalfCarry $
-                                    s._registers{_a = a'}
-                }
+                & registers
+                    %~ set (flag Carry) carry'
+                    . clearFlag Zero -- TODO: check this: manual says yes, impls say no
+                    . clearFlag HalfCarry
+                    . set a a'
     RL_C -> modify' $ \s ->
         let
-            carry = if hasFlag' Carry (view registers s) then 1 else 0
+            carry = if hasFlag Carry s then 1 else 0
             carry' = Bits.testBit (s ^. registers % c) 7
             c' = Bits.shiftL (s ^. registers % c) 1 + carry
         in
             s
-                { _registers =
-                    modifyFlag' Carry carry' $
-                        modifyFlag' Zero (c' == 0) $
-                            clearFlag' Negative $
-                                clearFlag' HalfCarry $
-                                    s._registers{_c = c'}
-                }
+                & registers
+                    %~ set (flag Carry) carry'
+                    . set (flag Zero) (c' == 0)
+                    . clearFlag HalfCarry
+                    . set c c'
     DI ->
         pure () -- TODO: disable interrupts
     CP_A_u8 n -> modify' $ \s ->
-        let
-            r' = setFlag' Negative (view registers s)
-            val = s ^. registers % a
-        in
-            s
-                { _registers =
-                    modifyFlag' Zero (val == n) $
-                        modifyFlag' Carry (val < n) $
-                            -- modifyFlag' HalfCarry () $ -- TODO: implement
-                            r'
-                }
+        let val = s ^. registers % a
+        in s
+            & registers
+                %~ set (flag Zero) (val == n)
+                . setFlag Negative
+                -- TODO: implement half carry
+                . set (flag Carry) (val < n)
 
 run :: IO ()
 run = do
