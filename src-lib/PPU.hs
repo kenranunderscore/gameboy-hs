@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module PPU where
 
@@ -75,3 +76,12 @@ windowY = io % byte 0x4a
 
 windowX :: Lens' MemoryBus U8
 windowX = io % byte 0x4b
+
+data ObjectAttributes = ObjectAttributes
+    { _y :: U8
+    , _x :: U8
+    , _tile :: U8
+    , _flags :: U8
+    }
+
+makeLenses ''ObjectAttributes
