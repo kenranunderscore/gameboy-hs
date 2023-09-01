@@ -64,7 +64,7 @@ writeByte addr n bus
     | addr < 0xa000 = writeTo vram 0x8000
     | addr < 0xc000 = writeTo sram 0xa000
     | addr < 0xe000 = writeTo wram 0xc000
-    | addr < 0xfe00 = bus -- echoes WRAM
+    | addr < 0xfe00 = writeTo wram 0xc000 -- echoes WRAM
     | addr < 0xfea0 = writeTo oam 0xfe00
     | addr < 0xff00 = bus -- forbidden area
     | addr < 0xff80 = writeIO addr n bus
