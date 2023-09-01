@@ -1,12 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module PPU where
+module GameBoy.PPU where
 
 import Optics
 
-import BitStuff
-import Memory
+import GameBoy.BitStuff
+import GameBoy.Memory
 
 data TileMapArea = Area9800 | Area9C00
 

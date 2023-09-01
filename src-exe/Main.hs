@@ -1,6 +1,4 @@
-module Main where
-
-import qualified Emulator
+import GameBoy.Main qualified
 
 main :: IO ()
-main = Emulator.run
+main = GameBoy.Main.main

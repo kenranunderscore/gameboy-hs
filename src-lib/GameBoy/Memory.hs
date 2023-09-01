@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
-module Memory where
+module GameBoy.Memory where
 
 import Control.Monad
 import Data.Array (Array, (!), (//))
@@ -10,7 +10,7 @@ import Data.Array qualified as Array
 import Data.ByteString qualified as BS
 import Optics
 
-import BitStuff
+import GameBoy.BitStuff
 
 type Memory = Array U16 U8
 

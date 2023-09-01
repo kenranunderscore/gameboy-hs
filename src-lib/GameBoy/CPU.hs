@@ -5,7 +5,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
-module Emulator where
+module GameBoy.CPU where
 
 import Control.Monad
 import Control.Monad.State.Strict
@@ -14,8 +14,8 @@ import Data.Bits qualified as Bits
 import Optics
 import System.Environment qualified as Environment
 
-import BitStuff
-import Memory
+import GameBoy.BitStuff
+import GameBoy.Memory
 
 data Registers = Registers
     { _a :: U8
@@ -598,17 +598,6 @@ execute = \case
                 . setFlag Negative
                 -- TODO: implement half carry
                 . set (flag Carry) (val < n)
-
-run :: IO ()
-run = do
-    args <- Environment.getArgs
-    case args of
-        [] -> fail "need path to ROM as first argument"
-        (cartridgePath : _) -> do
-            bus <- initializeMemoryBus cartridgePath
-            finalRegisters <- execStateT startup (mkInitialState bus)
-            putStrLn "done"
-            print finalRegisters
 
 startup :: (MonadIO m, CPU m) => m ()
 startup = loop

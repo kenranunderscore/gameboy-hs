@@ -1,4 +1,4 @@
-module BitStuff where
+module GameBoy.BitStuff where
 
 import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
 import Data.Bits qualified as Bits

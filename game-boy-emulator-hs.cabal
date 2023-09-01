@@ -15,10 +15,11 @@ common warnings
 library
   import:           warnings
   exposed-modules:
-    BitStuff
-    Emulator
-    Memory
-    PPU
+    GameBoy.BitStuff
+    GameBoy.CPU
+    GameBoy.Main
+    GameBoy.Memory
+    GameBoy.PPU
 
   build-depends:
     , array

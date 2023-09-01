@@ -7,9 +7,9 @@ import Optics
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import BitStuff
-import Emulator
-import Memory
+import GameBoy.BitStuff
+import GameBoy.CPU
+import GameBoy.Memory
 
 main :: IO ()
 main = defaultMain tests
@@ -17,7 +17,7 @@ main = defaultMain tests
 tests :: TestTree
 tests =
     testGroup
-        "Emulator"
+        "CPU"
         [ registerTests
         , stackTests
         , testCase "combineBytes" $ combineBytes 0x9a 0x3f @?= 0x9a3f
