@@ -1,11 +1,35 @@
 module GameBoy.Main (main) where
 
+import Control.Monad
 import Control.Monad.State.Strict
+import Optics
 import System.Environment qualified as Environment
 
+import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
-import GameBoy.PPU
+
+maxCyclesPerFrame :: Int
+maxCyclesPerFrame = 69_905
+
+mainLoop :: (MonadIO m, CPU m) => m ()
+mainLoop = forever $ do
+    oneFrame 0
+    renderScreen
+  where
+    oneFrame n = when (n < maxCyclesPerFrame) $ do
+        s <- get
+        instr <- fetch
+        cycles <- execute instr -- TODO: this should return cycles it took
+        liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+        void $ updateTimers cycles
+        void $ updateGraphics cycles
+        void $ handleInterrupts
+        oneFrame (n + cycles)
+    updateTimers _ = pure () -- TODO
+    updateGraphics _ = pure () -- TODO
+    handleInterrupts = pure () -- TODO
+    renderScreen = pure () -- TODO
 
 main :: IO ()
 main = do
@@ -14,6 +38,5 @@ main = do
         [] -> fail "need path to ROM as first argument"
         (cartridgePath : _) -> do
             bus <- initializeMemoryBus cartridgePath
-            finalRegisters <- execStateT startup (mkInitialState bus)
-            putStrLn "done"
-            print finalRegisters
+            _finalRegisters <- execStateT mainLoop (mkInitialState bus)
+            pure ()

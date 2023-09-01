@@ -7,12 +7,10 @@
 
 module GameBoy.CPU where
 
-import Control.Monad
 import Control.Monad.State.Strict
 import Data.Bits ((.&.))
 import Data.Bits qualified as Bits
 import Optics
-import System.Environment qualified as Environment
 
 import GameBoy.BitStuff
 import GameBoy.Memory
@@ -426,184 +424,214 @@ pop = do
     put (s & registers % sp %~ (+ 2))
     pure $ readU16 (view memoryBus s) (view stackPointer s)
 
-dec :: CPU m => Lens' Registers U8 -> m ()
-dec reg = modify' $ \s ->
-    let
-        old = s ^. registers % reg
-        result = old - 1
-    in
-        s
-            & registers
-                %~ ( set (flag Zero) (result == 0)
-                        . setFlag Negative
-                        . set (flag HalfCarry) (old .&. 0x0f == 0)
-                        . set reg result
-                   )
+dec :: CPU m => Lens' Registers U8 -> m Int
+dec reg = do
+    modify' $ \s ->
+        let
+            old = s ^. registers % reg
+            result = old - 1
+        in
+            s
+                & registers
+                    %~ ( set (flag Zero) (result == 0)
+                            . setFlag Negative
+                            . set (flag HalfCarry) (old .&. 0x0f == 0)
+                            . set reg result
+                       )
+    pure 4
 
-inc :: CPU m => Lens' Registers U8 -> m ()
-inc reg = modify' $ \s ->
-    let
-        old = s ^. registers % reg
-        result = old + 1
-    in
-        s
-            & registers
-                %~ ( set (flag Zero) (result == 0)
-                        . clearFlag Negative
-                        . set (flag HalfCarry) (old .&. 0x0f == 0x0f)
-                        . set reg result
-                   )
+inc :: CPU m => Lens' Registers U8 -> m Int
+inc reg = do
+    modify' $ \s ->
+        let
+            old = s ^. registers % reg
+            result = old + 1
+        in
+            s
+                & registers
+                    %~ ( set (flag Zero) (result == 0)
+                            . clearFlag Negative
+                            . set (flag HalfCarry) (old .&. 0x0f == 0x0f)
+                            . set reg result
+                       )
+    pure 4
 
-ld_r_r :: CPU m => TargetRegister -> TargetRegister -> m ()
-ld_r_r r r' = modify' $ \s ->
-    s & registers % (targetL r) .~ (s ^. registers % targetL r')
+ld_r_r :: CPU m => TargetRegister -> TargetRegister -> m Int
+ld_r_r r r' = do
+    modify' $ \s ->
+        s & registers % (targetL r) .~ (s ^. registers % targetL r')
+    pure 4
 
-execute :: CPU m => Instr -> m ()
+execute :: CPU m => Instr -> m Int
 execute = \case
-    NOP -> pure ()
+    NOP -> pure 4
     XOR_A ->
-        assign' (registers % a) 0
+        assign' (registers % a) 0 >> pure 4
     LD_SP_u16 n ->
-        assign' (registers % sp) n
+        assign' (registers % sp) n >> pure 12
     LD_HL_u16 n ->
-        assign' (registers % hl) n
-    LD_HLminus_A -> modify' $ \s ->
-        s
-            & registers % hl %~ (\x -> x - 1)
-            & memoryBus %~ writeByte (s ^. registers % hl) (s ^. registers % a)
-    LD_HLplus_A -> modify' $ \s ->
-        s
-            & registers % hl %~ (+ 1)
-            & memoryBus %~ writeByte (s ^. registers % hl) (s ^. registers % a)
-    LD_A_derefDE -> modify' $ \s ->
-        let addr = s ^. registers % de
-        in s & registers % a .~ (readByte (view memoryBus s) addr)
-    LD_A_FF00plusU8 n -> modify' $ \s ->
-        s & registers % a .~ (readByte (view memoryBus s) (0xff00 + fromIntegral n))
+        assign' (registers % hl) n >> pure 12
+    LD_HLminus_A -> do
+        modify' $ \s ->
+            s
+                & registers % hl %~ (\x -> x - 1)
+                & memoryBus %~ writeByte (s ^. registers % hl) (s ^. registers % a)
+        pure 8
+    LD_HLplus_A -> do
+        modify' $ \s ->
+            s
+                & registers % hl %~ (+ 1)
+                & memoryBus %~ writeByte (s ^. registers % hl) (s ^. registers % a)
+        pure 8
+    LD_A_derefDE -> do
+        modify' $ \s ->
+            let addr = s ^. registers % de
+            in s & registers % a .~ (readByte (view memoryBus s) addr)
+        pure 8
+    LD_A_FF00plusU8 n -> do
+        modify' $ \s ->
+            s & registers % a .~ (readByte (view memoryBus s) (0xff00 + fromIntegral n))
+        pure 12
     LD_A_u8 n ->
-        assign' (registers % a) n
+        assign' (registers % a) n >> pure 8
     LD_B_u8 n ->
-        assign' (registers % b) n
+        assign' (registers % b) n >> pure 8
     LD r r' ->
         ld_r_r r r'
     LD_C_u8 n ->
-        assign' (registers % c) n
+        assign' (registers % c) n >> pure 8
     LD_DE_u16 n ->
-        assign' (registers % de) n
-    LD_FF00plusC_A -> modify' $ \s ->
-        let
-            c' = s ^. registers % c
-            a' = s ^. registers % a
-        in
-            s & memoryBus %~ writeByte (0xff00 + fromIntegral c') a'
-    LD_FF00plusU8_A n -> modify' $ \s ->
-        let a' = s ^. registers % a
-        in s & memoryBus %~ writeByte (0xff00 + fromIntegral n) a'
-    LD_derefHL_A -> modify' $ \s ->
-        let a' = s ^. registers % a
-        in s & memoryBus %~ writeByte (s ^. registers % hl) a'
-    BIT n r -> modify' $ \s ->
-        let bitIsSet = Bits.testBit (s ^. registers % targetL r) n
-        in s
-            & registers
-                %~ setFlag HalfCarry
-                . clearFlag Negative
-                . set (flag Zero) (not bitIsSet)
-    BIT_n_derefHL n -> modify' $ \s ->
-        let
-            p = s ^. registers % hl
-            val = readByte (view memoryBus s) p
-            bitIsSet = Bits.testBit val n
-        in
-            s
+        assign' (registers % de) n >> pure 12
+    LD_FF00plusC_A -> do
+        modify' $ \s ->
+            let
+                c' = s ^. registers % c
+                a' = s ^. registers % a
+            in
+                s & memoryBus %~ writeByte (0xff00 + fromIntegral c') a'
+        pure 8
+    LD_FF00plusU8_A n -> do
+        modify' $ \s ->
+            let a' = s ^. registers % a
+            in s & memoryBus %~ writeByte (0xff00 + fromIntegral n) a'
+        pure 12
+    LD_derefHL_A -> do
+        modify' $ \s ->
+            let a' = s ^. registers % a
+            in s & memoryBus %~ writeByte (s ^. registers % hl) a'
+        pure 8
+    BIT n r -> do
+        modify' $ \s ->
+            let bitIsSet = Bits.testBit (s ^. registers % targetL r) n
+            in s
                 & registers
                     %~ setFlag HalfCarry
                     . clearFlag Negative
                     . set (flag Zero) (not bitIsSet)
-    JR_NZ_i8 n -> modify' $ \s ->
-        if not $ hasFlag Zero s
-            then s & programCounter %~ (+ fromIntegral n)
-            else s
+        pure 8
+    BIT_n_derefHL n -> do
+        modify' $ \s ->
+            let
+                p = s ^. registers % hl
+                val = readByte (view memoryBus s) p
+                bitIsSet = Bits.testBit val n
+            in
+                s
+                    & registers
+                        %~ setFlag HalfCarry
+                        . clearFlag Negative
+                        . set (flag Zero) (not bitIsSet)
+        pure 12
+    JR_NZ_i8 n -> do
+        modify' $ \s ->
+            if not $ hasFlag Zero s
+                then s & programCounter %~ (+ fromIntegral n)
+                else s
+        pure 20
     JP_u16 n ->
-        assign' (registers % pc) n
+        assign' (registers % pc) n >> pure 16
     INC r ->
         inc (targetL r)
-    INC_derefHL -> modify' $ \s ->
-        let
-            p = s ^. registers % hl
-            val = readByte (view memoryBus s) p + 1
-        in
-            s & memoryBus %~ writeByte p val
+    INC_derefHL -> do
+        modify' $ \s ->
+            let
+                p = s ^. registers % hl
+                val = readByte (view memoryBus s) p + 1
+            in
+                s & memoryBus %~ writeByte p val
+        pure 12
     INC16 r ->
-        modifying' (registers % (target16L r)) (+ 1)
+        modifying' (registers % (target16L r)) (+ 1) >> pure 8
     DEC r ->
         dec (targetL r)
-    DEC_derefHL -> modify' $ \s ->
-        let
-            p = s ^. registers % hl
-            val = readByte (view memoryBus s) p - 1
-        in
-            s
-                & memoryBus %~ writeByte p val
-                & registers
-                    %~ set (flag Zero) (val == 0)
-                    . setFlag Negative
-                    . set (flag HalfCarry) ((val + 1) .&. 0x0f == 0)
+    DEC_derefHL -> do
+        modify' $ \s ->
+            let
+                p = s ^. registers % hl
+                val = readByte (view memoryBus s) p - 1
+            in
+                s
+                    & memoryBus %~ writeByte p val
+                    & registers
+                        %~ set (flag Zero) (val == 0)
+                        . setFlag Negative
+                        . set (flag HalfCarry) ((val + 1) .&. 0x0f == 0)
+        pure 12
     DEC16 r ->
-        modifying' (registers % (target16L r)) (\n -> n - 1)
+        modifying' (registers % (target16L r)) (\n -> n - 1) >> pure 8
     CALL n -> do
         counter <- gets (view programCounter)
         push (counter + 1)
         assign' (registers % pc) n
+        pure 24
     RET -> do
         addr <- pop
         assign' (registers % pc) addr
+        pure 16
     PUSH_BC -> do
         n <- gets (view (registers % bc))
         push n
+        pure 16
     POP_BC -> do
         n <- pop
         assign' (registers % bc) n
-    RLA -> modify' $ \s ->
-        let
-            carry = if hasFlag Carry s then 1 else 0
-            carry' = Bits.testBit (s ^. registers % a) 7
-            a' = Bits.shiftL (s ^. registers % a) 1 + carry
-        in
-            s
+        pure 12
+    RLA -> do
+        modify' $ \s ->
+            let
+                carry = if hasFlag Carry s then 1 else 0
+                carry' = Bits.testBit (s ^. registers % a) 7
+                a' = Bits.shiftL (s ^. registers % a) 1 + carry
+            in
+                s
+                    & registers
+                        %~ set (flag Carry) carry'
+                        . clearFlag Zero -- TODO: check this: manual says yes, impls say no
+                        . clearFlag HalfCarry
+                        . set a a'
+        pure 4
+    RL_C -> do
+        modify' $ \s ->
+            let
+                carry = if hasFlag Carry s then 1 else 0
+                carry' = Bits.testBit (s ^. registers % c) 7
+                c' = Bits.shiftL (s ^. registers % c) 1 + carry
+            in
+                s
+                    & registers
+                        %~ set (flag Carry) carry'
+                        . set (flag Zero) (c' == 0)
+                        . clearFlag HalfCarry
+                        . set c c'
+        pure 4
+    DI -> pure 4 -- TODO: disable interrupts
+    CP_A_u8 n -> do
+        modify' $ \s ->
+            let val = s ^. registers % a
+            in s
                 & registers
-                    %~ set (flag Carry) carry'
-                    . clearFlag Zero -- TODO: check this: manual says yes, impls say no
-                    . clearFlag HalfCarry
-                    . set a a'
-    RL_C -> modify' $ \s ->
-        let
-            carry = if hasFlag Carry s then 1 else 0
-            carry' = Bits.testBit (s ^. registers % c) 7
-            c' = Bits.shiftL (s ^. registers % c) 1 + carry
-        in
-            s
-                & registers
-                    %~ set (flag Carry) carry'
-                    . set (flag Zero) (c' == 0)
-                    . clearFlag HalfCarry
-                    . set c c'
-    DI ->
-        pure () -- TODO: disable interrupts
-    CP_A_u8 n -> modify' $ \s ->
-        let val = s ^. registers % a
-        in s
-            & registers
-                %~ set (flag Zero) (val == n)
-                . setFlag Negative
-                -- TODO: implement half carry
-                . set (flag Carry) (val < n)
-
-startup :: (MonadIO m, CPU m) => m ()
-startup = loop
-  where
-    loop = forever $ do
-        s <- get
-        instr <- fetch
-        execute instr
-        liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+                    %~ set (flag Zero) (val == n)
+                    . setFlag Negative
+                    -- TODO: implement half carry
+                    . set (flag Carry) (val < n)
+        pure 8
