@@ -57,3 +57,21 @@ priorityIso =
 
 bgWindowMasterPriority :: Lens' MemoryBus Priority
 bgWindowMasterPriority = lcdc % bit 0 % priorityIso
+
+viewportY :: Lens' MemoryBus U8
+viewportY = io % byte 0x42
+
+viewportX :: Lens' MemoryBus U8
+viewportX = io % byte 0x43
+
+ly :: Lens' MemoryBus U8
+ly = io % byte 0x44
+
+lyc :: Lens' MemoryBus U8
+lyc = io % byte 0x45
+
+windowY :: Lens' MemoryBus U8
+windowY = io % byte 0x4a
+
+windowX :: Lens' MemoryBus U8
+windowX = io % byte 0x4b
