@@ -147,12 +147,10 @@ target16L = \case
     SP -> sp
 
 data Instr
-    = LD_SP_u16 U16 -- TODO: replace flat instructions with a tree
-    | LD_HL_u16 U16
+    = LD_u16 TargetRegister16 U16
     | LD_A_derefDE
     | LD_A_FF00plusU8 U8
     | LD_u8 TargetRegister U8
-    | LD_DE_u16 U16
     | LD_FF00plusC_A
     | LD_FF00plusU8_A U8
     | LD_derefHL_A
@@ -182,8 +180,7 @@ data Instr
 
 instance Show Instr where
     show = \case
-        LD_SP_u16 n -> "LD SP," <> toHex n
-        LD_HL_u16 n -> "LD HL," <> toHex n
+        LD_u16 rr n -> "LD " <> show rr <> "," <> toHex n
         LD_derefHL_A -> "LD (HL),A"
         LD_HLminus_A -> "LD (HL-),A"
         LD_HLplus_A -> "LD (HL+),A"
@@ -191,7 +188,6 @@ instance Show Instr where
         LD_A_FF00plusU8 n -> "LD A,($ff00+" <> toHex n <> ")"
         LD r r' -> "LD " <> show r <> "," <> show r'
         LD_u8 r n -> "LD " <> show r <> "," <> toHex n
-        LD_DE_u16 n -> "LD DE," <> toHex n
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
         LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
         BIT n r -> "BIT " <> show n <> "," <> show r
@@ -238,6 +234,7 @@ fetch = do
     advance 1
     case readByte bus counter of
         0 -> pure NOP
+        0x01 -> LD_u16 BC <$> fetchU16M
         0x03 -> pure $ INC16 BC
         0x04 -> pure $ INC B
         0x05 -> pure $ DEC B
@@ -246,7 +243,7 @@ fetch = do
         0x0c -> pure $ INC C
         0x0d -> pure $ DEC C
         0x0e -> LD_u8 C <$> fetchByteM
-        0x11 -> LD_DE_u16 <$> fetchU16M
+        0x11 -> LD_u16 DE <$> fetchU16M
         0x13 -> pure $ INC16 DE
         0x14 -> pure $ INC D
         0x15 -> pure $ DEC D
@@ -258,7 +255,7 @@ fetch = do
         0x1d -> pure $ DEC E
         0x1e -> LD_u8 E <$> fetchByteM
         0x20 -> JR_NZ_i8 <$> fetchI8M
-        0x21 -> LD_HL_u16 <$> fetchU16M
+        0x21 -> LD_u16 HL <$> fetchU16M
         0x22 -> pure LD_HLplus_A
         0x23 -> pure $ INC16 HL
         0x24 -> pure $ INC H
@@ -268,7 +265,7 @@ fetch = do
         0x2c -> pure $ INC L
         0x2d -> pure $ DEC L
         0x2e -> LD_u8 L <$> fetchByteM
-        0x31 -> LD_SP_u16 <$> fetchU16M
+        0x31 -> LD_u16 SP <$> fetchU16M
         0x32 -> pure LD_HLminus_A
         0x33 -> pure $ INC16 SP
         0x34 -> pure INC_derefHL
@@ -467,10 +464,8 @@ execute = \case
     NOP -> pure 4
     XOR_A ->
         assign' (registers % a) 0 >> pure 4
-    LD_SP_u16 n ->
-        assign' (registers % sp) n >> pure 12
-    LD_HL_u16 n ->
-        assign' (registers % hl) n >> pure 12
+    LD_u16 rr n ->
+        assign' (registers % target16L rr) n >> pure 12
     LD_HLminus_A -> do
         modify' $ \s ->
             s
@@ -496,8 +491,6 @@ execute = \case
         assign' (registers % targetL r) n >> pure 8
     LD r r' ->
         ld_r_r r r'
-    LD_DE_u16 n ->
-        assign' (registers % de) n >> pure 12
     LD_FF00plusC_A -> do
         modify' $ \s ->
             let
