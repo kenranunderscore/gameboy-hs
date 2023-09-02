@@ -83,6 +83,39 @@ readU16 bus addr =
     -- GameBoy is little-endian
     combineBytes (readByte bus $ addr + 1) (readByte bus addr)
 
+lcdc :: Lens' MemoryBus U8
+lcdc = io % byte 0x40
+
+lcdEnable :: Lens' MemoryBus Bool
+lcdEnable = lcdc % bit 7
+
+displayWindow :: Lens' MemoryBus Bool
+displayWindow = lcdc % bit 5
+
+objSize :: Lens' MemoryBus Bool
+objSize = lcdc % bit 2
+
+objEnabled :: Lens' MemoryBus Bool
+objEnabled = lcdc % bit 1
+
+viewportY :: Lens' MemoryBus U8
+viewportY = io % byte 0x42
+
+viewportX :: Lens' MemoryBus U8
+viewportX = io % byte 0x43
+
+ly :: Lens' MemoryBus U8
+ly = io % byte 0x44
+
+lyc :: Lens' MemoryBus U8
+lyc = io % byte 0x45
+
+windowY :: Lens' MemoryBus U8
+windowY = io % byte 0x4a
+
+windowX :: Lens' MemoryBus U8
+windowX = io % byte 0x4b
+
 {- FOURMOLU_DISABLE -}
 
 bios :: Memory
