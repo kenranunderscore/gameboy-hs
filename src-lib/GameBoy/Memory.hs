@@ -29,7 +29,7 @@ data MemoryBus = MemoryBus
     -- ^ IO registers: $ff00 - $ff7f
     , _hram :: Memory
     -- ^ HRAM: $ff80 - $fffe
-    , _interrupts :: U8
+    , _ie :: U8
     -- ^ Interrupt register: $ffff
     }
     deriving (Show)
@@ -55,7 +55,7 @@ readByte bus addr
     | addr < 0xff00 = 0 -- forbidden area
     | addr < 0xff80 = bus._io ! (addr - 0xff00)
     | addr < 0xffff = bus._hram ! (addr - 0xff80)
-    | addr == 0xffff = bus._interrupts
+    | addr == 0xffff = bus._ie
     | otherwise = error "the impossible happened"
 
 writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
@@ -69,14 +69,20 @@ writeByte addr n bus
     | addr < 0xff00 = bus -- forbidden area
     | addr < 0xff80 = writeIO addr n bus
     | addr < 0xffff = writeTo hram 0xff80
-    | addr == 0xffff = bus & interrupts .~ n
+    | addr == 0xffff = bus & ie .~ n
     | otherwise = error "the impossible happened"
   where
     writeTo dest offset =
         bus & dest % byte (addr - offset) .~ n
 
 writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
-writeIO addr n bus = bus & io % byte (addr - 0xff00) .~ n
+writeIO addr n bus =
+    case addr of
+        -- writing anything to the divider register resets it
+        0xff04 -> bus & divider .~ 0
+        _ -> bus & io % byte relativeAddr .~ n
+  where
+    relativeAddr = addr - 0xff00
 
 readU16 :: MemoryBus -> U16 -> U16
 readU16 bus addr =
@@ -116,6 +122,63 @@ windowY = io % byte 0x4a
 windowX :: Lens' MemoryBus U8
 windowX = io % byte 0x4b
 
+divider :: Lens' MemoryBus U8
+divider = io % byte 0x04
+
+tima :: Lens' MemoryBus U8
+tima = io % byte 0x05
+
+(/\) :: Lens' s a -> Lens' s b -> Lens' s (a, b)
+l1 /\ l2 =
+    lens
+        (\s -> (s ^. l1, s ^. l2))
+        (\s (a, b) -> s & l1 .~ a & l2 .~ b)
+
+tma :: Lens' MemoryBus U8
+tma = io % byte 0x06
+
+tac :: Lens' MemoryBus U8
+tac = io % byte 0x07
+
+timerEnable :: Lens' MemoryBus Bool
+timerEnable = tac % bit 2
+
+inputClockSelect :: Lens' MemoryBus (Bool, Bool)
+inputClockSelect = (tac % bit 1) /\ (tac % bit 0)
+
+vblankIntEnable :: Lens' MemoryBus Bool
+vblankIntEnable = ie % bit 0
+
+lcdStatIntEnable :: Lens' MemoryBus Bool
+lcdStatIntEnable = ie % bit 1
+
+timerIntEnable :: Lens' MemoryBus Bool
+timerIntEnable = ie % bit 2
+
+serialIntEnable :: Lens' MemoryBus Bool
+serialIntEnable = ie % bit 3
+
+joypadIntEnable :: Lens' MemoryBus Bool
+joypadIntEnable = ie % bit 4
+
+interruptFlags :: Lens' MemoryBus U8
+interruptFlags = io % byte 0x0f
+
+vblankIntRequested :: Lens' MemoryBus Bool
+vblankIntRequested = interruptFlags % bit 0
+
+lcdStatIntRequested :: Lens' MemoryBus Bool
+lcdStatIntRequested = interruptFlags % bit 1
+
+timerIntRequested :: Lens' MemoryBus Bool
+timerIntRequested = interruptFlags % bit 2
+
+serialIntRequested :: Lens' MemoryBus Bool
+serialIntRequested = interruptFlags % bit 3
+
+joypadIntRequested :: Lens' MemoryBus Bool
+joypadIntRequested = interruptFlags % bit 4
+
 {- FOURMOLU_DISABLE -}
 
 bios :: Memory
@@ -140,6 +203,7 @@ bios = Array.listArray (0, 0xff) $
 
 ioInitialValues :: Memory
 ioInitialValues = Array.listArray (0, 0xff) $
+    -- FIXME: check these values, they look wrong (e.g. TAC)
     [ 0x0f, 0x00, 0x7c, 0xff, 0x00, 0x00, 0x00, 0xf8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
     , 0x80, 0xbf, 0xf3, 0xff, 0xbf, 0xff, 0x3f, 0x00, 0xff, 0xbf, 0x7f, 0xff, 0x9f, 0xff, 0xbf, 0xff
     , 0xff, 0x00, 0x00, 0xbf, 0x77, 0xf3, 0xf1, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
@@ -172,7 +236,7 @@ defaultMemoryBus :: MemoryBus
 defaultMemoryBus =
     -- TODO: set correct initial values
     MemoryBus
-        { _interrupts = 0
+        { _ie = 0x0 -- TODO check this
         , _hram = mkEmptyArray 0x80
         , _io = ioInitialValues
         , _oam = mkEmptyArray 0x100

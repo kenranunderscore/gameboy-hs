@@ -26,9 +26,7 @@ mainLoop = forever $ do
         void $ updateGraphics cycles
         void $ handleInterrupts
         oneFrame (n + cycles)
-    updateTimers _ = pure () -- TODO
     updateGraphics _ = pure () -- TODO
-    handleInterrupts = pure () -- TODO
     renderScreen = pure () -- TODO
 
 main :: IO ()

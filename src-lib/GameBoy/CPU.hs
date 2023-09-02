@@ -7,9 +7,11 @@
 
 module GameBoy.CPU where
 
+import Control.Monad
 import Control.Monad.State.Strict
 import Data.Bits ((.&.))
 import Data.Bits qualified as Bits
+import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
@@ -87,6 +89,9 @@ instance Show Registers where
 data CPUState = CPUState
     { _registers :: Registers
     , _memoryBus :: MemoryBus
+    , _dividerCounter :: Int
+    , _timerCounter :: Int
+    , _masterInterruptEnable :: Bool
     }
     deriving stock (Show)
 
@@ -102,7 +107,7 @@ stackPointer :: Lens' CPUState U16
 stackPointer = registers % sp
 
 mkInitialState :: MemoryBus -> CPUState
-mkInitialState bus = CPUState initialRegisters bus
+mkInitialState bus = CPUState initialRegisters bus 0 1024 True
   where
     initialRegisters =
         Registers
@@ -613,7 +618,8 @@ execute = \case
                         . clearFlag HalfCarry
                         . set c c'
         pure 4
-    DI -> pure 4 -- TODO: disable interrupts
+    DI ->
+        assign' masterInterruptEnable False >> pure 4
     CP_A_u8 n -> do
         modify' $ \s ->
             let val = s ^. registers % a
@@ -624,3 +630,80 @@ execute = \case
                     -- TODO: implement half carry
                     . set (flag Carry) (val < n)
         pure 8
+
+updateTimers :: CPU m => Int -> m ()
+updateTimers cycles = do
+    updateDivider cycles
+    s <- get
+    when (s ^. memoryBus % timerEnable) $ do
+        let counter' = view timerCounter s - cycles
+        assign' timerCounter counter'
+        traceShowM counter'
+        when (counter' <= 0) $ do
+            -- TODO reset the timer counter, dep. on the frequency
+            -- TODO find a way to react to other frequency changes
+            let timer = s ^. memoryBus % tima
+            if timer == maxBound
+                then do
+                    assign' (memoryBus % tima) (s ^. memoryBus % tma)
+                    assign' (memoryBus % timerIntRequested) True
+                else modifying' (memoryBus % tima) (+ 1)
+
+updateDivider :: CPU m => Int -> m ()
+updateDivider cycles = do
+    counter <- gets (view dividerCounter)
+    let counter' = counter + cycles
+    assign' dividerCounter counter'
+    when (counter' >= 255) $ do
+        traceM "INCREMENTING DIVIDER REGISTER"
+        assign' dividerCounter 0
+        modifying' (memoryBus % divider) (+ 1)
+
+data TimerFrequency
+    = Freq4K
+    | Freq16K
+    | Freq64K
+    | Freq256K
+
+timerFrequencyIso :: Iso' (Bool, Bool) TimerFrequency
+timerFrequencyIso =
+    iso
+        ( \case
+            (False, False) -> Freq4K
+            (False, True) -> Freq256K
+            (True, False) -> Freq64K
+            (True, True) -> Freq16K
+        )
+        ( \case
+            Freq4K -> (False, False)
+            Freq256K -> (False, True)
+            Freq64K -> (True, False)
+            Freq16K -> (True, True)
+        )
+
+timerFrequency :: Lens' MemoryBus TimerFrequency
+timerFrequency = inputClockSelect % timerFrequencyIso
+
+handleInterrupts :: CPU m => m ()
+handleInterrupts = do
+    s <- get
+    when (view masterInterruptEnable s) $ do
+        let
+            enabledInterrupts = s ^. memoryBus % ie
+            requestedInterrupts = s ^. memoryBus % interruptFlags
+        when (requestedInterrupts > 0) $ do
+            when (s ^. memoryBus % vblankIntRequested) $ do
+                when (s ^. memoryBus % vblankIntEnable) $ do
+                    handleInterrupt 0
+  where
+    handleInterrupt :: CPU m => Int -> m ()
+    handleInterrupt interrupt = do
+        assign' (memoryBus % vblankIntRequested) False
+        counter <- gets (view programCounter)
+        push counter
+        case interrupt of
+            0 -> assign' programCounter 0x40
+            1 -> assign' programCounter 0x48
+            2 -> assign' programCounter 0x50
+            4 -> assign' programCounter 0x60
+            s -> error $ "unhandled interrupt: " <> show s
