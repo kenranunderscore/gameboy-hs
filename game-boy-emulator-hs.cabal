@@ -23,10 +23,12 @@ library
 
   build-depends:
     , array
+    , async
     , base
     , bytestring
     , mtl
     , optics
+    , sdl2
 
   hs-source-dirs:   src-lib
   default-language: GHC2021
