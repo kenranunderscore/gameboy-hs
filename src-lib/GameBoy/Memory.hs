@@ -146,38 +146,11 @@ timerEnable = tac % bit 2
 inputClockSelect :: Lens' MemoryBus (Bool, Bool)
 inputClockSelect = (tac % bit 1) /\ (tac % bit 0)
 
-vblankIntEnable :: Lens' MemoryBus Bool
-vblankIntEnable = ie % bit 0
-
-lcdStatIntEnable :: Lens' MemoryBus Bool
-lcdStatIntEnable = ie % bit 1
-
-timerIntEnable :: Lens' MemoryBus Bool
-timerIntEnable = ie % bit 2
-
-serialIntEnable :: Lens' MemoryBus Bool
-serialIntEnable = ie % bit 3
-
-joypadIntEnable :: Lens' MemoryBus Bool
-joypadIntEnable = ie % bit 4
-
 interruptFlags :: Lens' MemoryBus U8
 interruptFlags = io % byte 0x0f
 
-vblankIntRequested :: Lens' MemoryBus Bool
-vblankIntRequested = interruptFlags % bit 0
-
-lcdStatIntRequested :: Lens' MemoryBus Bool
-lcdStatIntRequested = interruptFlags % bit 1
-
 timerIntRequested :: Lens' MemoryBus Bool
 timerIntRequested = interruptFlags % bit 2
-
-serialIntRequested :: Lens' MemoryBus Bool
-serialIntRequested = interruptFlags % bit 3
-
-joypadIntRequested :: Lens' MemoryBus Bool
-joypadIntRequested = interruptFlags % bit 4
 
 {- FOURMOLU_DISABLE -}
 
@@ -203,7 +176,6 @@ bios = Array.listArray (0, 0xff) $
 
 ioInitialValues :: Memory
 ioInitialValues = Array.listArray (0, 0xff) $
-    -- FIXME: check these values, they look wrong (e.g. TAC)
     [ 0x0f, 0x00, 0x7c, 0xff, 0x00, 0x00, 0x00, 0xf8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
     , 0x80, 0xbf, 0xf3, 0xff, 0xbf, 0xff, 0x3f, 0x00, 0xff, 0xbf, 0x7f, 0xff, 0x9f, 0xff, 0xbf, 0xff
     , 0xff, 0x00, 0x00, 0xbf, 0x77, 0xf3, 0xf1, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff

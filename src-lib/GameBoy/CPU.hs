@@ -180,6 +180,7 @@ data Instr
     | RLA
     | RL_C
     | DI
+    | EI
     | NOP
     | CP_A_u8 U8
 
@@ -213,6 +214,7 @@ instance Show Instr where
         RLA -> "RLA"
         RL_C -> "RL C"
         DI -> "DI"
+        EI -> "EI"
         NOP -> "NOP"
         CP_A_u8 n -> "CP A," <> toHex n
 
@@ -340,6 +342,7 @@ fetch = do
         0xe2 -> pure LD_FF00plusC_A
         0xf0 -> LD_A_FF00plusU8 <$> fetchByteM
         0xf3 -> pure DI
+        0xfb -> pure EI
         0xfe -> CP_A_u8 <$> fetchByteM
         unknown -> error $ "unknown opcode: " <> toHex unknown
 
@@ -620,6 +623,8 @@ execute = \case
         pure 4
     DI ->
         assign' masterInterruptEnable False >> pure 4
+    EI ->
+        assign' masterInterruptEnable True >> pure 4
     CP_A_u8 n -> do
         modify' $ \s ->
             let val = s ^. registers % a
@@ -655,7 +660,6 @@ updateDivider cycles = do
     let counter' = counter + cycles
     assign' dividerCounter counter'
     when (counter' >= 255) $ do
-        traceM "INCREMENTING DIVIDER REGISTER"
         assign' dividerCounter 0
         modifying' (memoryBus % divider) (+ 1)
 
@@ -691,19 +695,22 @@ handleInterrupts = do
         let
             enabledInterrupts = s ^. memoryBus % ie
             requestedInterrupts = s ^. memoryBus % interruptFlags
-        when (requestedInterrupts > 0) $ do
-            when (s ^. memoryBus % vblankIntRequested) $ do
-                when (s ^. memoryBus % vblankIntEnable) $ do
-                    handleInterrupt 0
+        when (requestedInterrupts > 0) $
+            forM_ [0 .. 4] $ \interrupt ->
+                when (requestedInterrupts ^. bit interrupt) $ do
+                    when (enabledInterrupts ^. bit interrupt) $ do
+                        handleInterrupt interrupt
   where
-    handleInterrupt :: CPU m => Int -> m ()
     handleInterrupt interrupt = do
-        assign' (memoryBus % vblankIntRequested) False
+        assign' masterInterruptEnable False
+        assign' (memoryBus % interruptFlags % bit interrupt) False
         counter <- gets (view programCounter)
         push counter
+        -- TODO: check whether I have to execute 2 NOPs
         case interrupt of
-            0 -> assign' programCounter 0x40
-            1 -> assign' programCounter 0x48
-            2 -> assign' programCounter 0x50
-            4 -> assign' programCounter 0x60
+            0 -> assign' programCounter 0x40 -- VBlank
+            1 -> assign' programCounter 0x48 -- LCD stat
+            2 -> assign' programCounter 0x50 -- Timer
+            3 -> assign' programCounter 0x58 -- Serial
+            4 -> assign' programCounter 0x60 -- Joypad
             s -> error $ "unhandled interrupt: " <> show s
