@@ -147,6 +147,9 @@ interruptFlags = io % byte 0x0f
 timerIntRequested :: Lens' MemoryBus Bool
 timerIntRequested = interruptFlags % bit 2
 
+dma :: Lens' MemoryBus U8
+dma = io % byte 0x46
+
 {- FOURMOLU_DISABLE -}
 
 bios :: Memory

@@ -416,6 +416,8 @@ fetchPrefixed bus = do
 writeMemory :: CPU m => U16 -> U8 -> m ()
 writeMemory addr n =
     case addr of
+        0xff46 -> do
+            dmaTransfer n
         -- HACK: "listen" for changes that potentially cascade to other state
         -- changes here
         0xff07 -> do
@@ -719,3 +721,10 @@ handleInterrupts = do
             3 -> assign' programCounter 0x58 -- Serial
             4 -> assign' programCounter 0x60 -- Joypad
             s -> error $ "unhandled interrupt: " <> show s
+
+dmaTransfer :: CPU m => U8 -> m ()
+dmaTransfer n = do
+    let startAddr :: U16 = Bits.shiftL (fromIntegral n) 8 -- times 0x100
+    bus <- use memoryBus
+    forM_ [0 .. 0xa0 - 1] $ \i ->
+        assign' (memoryBus % oam % byte i) (readByte bus (startAddr + i))
