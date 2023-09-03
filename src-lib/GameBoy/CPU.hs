@@ -414,25 +414,24 @@ fetchPrefixed bus = do
 
 writeMemory :: CPU m => U16 -> U8 -> m ()
 writeMemory addr n =
-    -- HACK: "listen" for changes to timer frequency here
-    if addr == 0xff07
-        then do
+    case addr of
+        -- HACK: "listen" for changes that potentially cascade to other state
+        -- changes here
+        0xff07 -> do
             freq <- use (memoryBus % timerFrequency)
             modifying' memoryBus (writeByte addr n)
             freq' <- use (memoryBus % timerFrequency)
             when (freq' /= freq) $
                 assign' timerCounter (counterFromFrequency freq')
-        else modifying' memoryBus (writeByte addr n)
+        _ -> modifying' memoryBus (writeByte addr n)
 
 push :: CPU m => U16 -> m ()
-push n =
-    modify'
-        ( \s ->
-            let curr = view stackPointer s
-            in s
-                & registers % sp %~ (\x -> x - 2)
-                & memoryBus %~ (writeByte (curr - 1) hi . writeByte (curr - 2) lo)
-        )
+push n = do
+    s <- get
+    let curr = s ^. stackPointer
+    modifying' stackPointer (\x -> x - 2)
+    writeMemory (curr - 1) hi
+    writeMemory (curr - 2) lo
   where
     (hi, lo) = splitIntoBytes n
 
@@ -489,47 +488,40 @@ execute = \case
     LD_u16 rr n ->
         assign' (registers % target16L rr) n >> pure 12
     LD_HLminus_A -> do
-        modify' $ \s ->
-            s
-                & registers % hl %~ (\x -> x - 1)
-                & memoryBus %~ writeByte (s ^. registers % hl) (s ^. registers % a)
+        modifying' (registers % hl) (\x -> x - 1)
+        rs <- use registers
+        writeMemory (rs ^. hl) (rs ^. a)
         pure 8
     LD_HLplus_A -> do
-        modify' $ \s ->
-            s
-                & registers % hl %~ (+ 1)
-                & memoryBus %~ writeByte (s ^. registers % hl) (s ^. registers % a)
+        modifying' (registers % hl) (+ 1)
+        rs <- use registers
+        writeMemory (rs ^. hl) (rs ^. a)
         pure 8
     LD_A_derefDE -> do
-        modify' $ \s ->
-            let addr = s ^. registers % de
-            in s & registers % a .~ (readByte (view memoryBus s) addr)
+        s <- get
+        let addr = s ^. registers % de
+        assign' (registers % a) (readByte (view memoryBus s) addr)
         pure 8
     LD_A_FF00plusU8 n -> do
         modify' $ \s ->
-            s & registers % a .~ (readByte (view memoryBus s) (0xff00 + fromIntegral n))
+            s & registers % a .~ readByte (view memoryBus s) (0xff00 + fromIntegral n)
         pure 12
     LD_u8 r n ->
         assign' (registers % targetL r) n >> pure 8
     LD r r' ->
         ld_r_r r r'
     LD_FF00plusC_A -> do
-        modify' $ \s ->
-            let
-                c' = s ^. registers % c
-                a' = s ^. registers % a
-            in
-                s & memoryBus %~ writeByte (0xff00 + fromIntegral c') a'
+        s <- get
+        let offset = fromIntegral $ s ^. registers % c
+        writeMemory (0xff00 + offset) (s ^. registers % a)
         pure 8
     LD_FF00plusU8_A n -> do
-        modify' $ \s ->
-            let a' = s ^. registers % a
-            in s & memoryBus %~ writeByte (0xff00 + fromIntegral n) a'
+        s <- get
+        writeMemory (0xff00 + fromIntegral n) (s ^. registers % a)
         pure 12
     LD_derefHL_A -> do
-        modify' $ \s ->
-            let a' = s ^. registers % a
-            in s & memoryBus %~ writeByte (s ^. registers % hl) a'
+        s <- get
+        writeMemory (s ^. registers % hl) (s ^. registers % a)
         pure 8
     BIT n r -> do
         modify' $ \s ->
@@ -564,29 +556,28 @@ execute = \case
     INC r ->
         inc (targetL r)
     INC_derefHL -> do
-        modify' $ \s ->
-            let
-                p = s ^. registers % hl
-                val = readByte (view memoryBus s) p + 1
-            in
-                s & memoryBus %~ writeByte p val
+        s <- get
+        let
+            addr = s ^. registers % hl
+            val = readByte (view memoryBus s) addr + 1
+        writeMemory addr val
         pure 12
     INC16 r ->
         modifying' (registers % (target16L r)) (+ 1) >> pure 8
     DEC r ->
         dec (targetL r)
     DEC_derefHL -> do
-        modify' $ \s ->
-            let
-                p = s ^. registers % hl
-                val = readByte (view memoryBus s) p - 1
-            in
-                s
-                    & memoryBus %~ writeByte p val
-                    & registers
-                        %~ set (flag Zero) (val == 0)
-                        . setFlag Negative
-                        . set (flag HalfCarry) ((val + 1) .&. 0x0f == 0)
+        s <- get
+        let
+            addr = s ^. registers % hl
+            val = readByte (view memoryBus s) addr - 1
+        writeMemory addr val
+        modifying'
+            registers
+            ( set (flag Zero) (val == 0)
+                . setFlag Negative
+                . set (flag HalfCarry) ((val + 1) .&. 0x0f == 0)
+            )
         pure 12
     DEC16 r ->
         modifying' (registers % (target16L r)) (\n -> n - 1) >> pure 8
