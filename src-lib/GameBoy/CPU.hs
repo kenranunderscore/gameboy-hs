@@ -236,8 +236,10 @@ fetchU16M = do
 
 fetch :: CPU m => m Instr
 fetch = do
-    counter <- gets (view programCounter)
-    bus <- gets (view memoryBus)
+    s <- get
+    let
+        counter = view programCounter s
+        bus = view memoryBus s
     advance 1
     case readByte bus counter of
         0 -> pure NOP
@@ -348,7 +350,7 @@ fetch = do
 
 fetchPrefixed :: CPU m => MemoryBus -> m Instr
 fetchPrefixed bus = do
-    n <- readU16 bus <$> gets (view programCounter)
+    n <- readU16 bus <$> use programCounter
     advance 1
     case n of
         0x11 -> pure RL_C
@@ -409,6 +411,18 @@ fetchPrefixed bus = do
         0x7e -> pure $ BIT_n_derefHL 7
         0x7f -> pure $ BIT 7 A
         s -> error $ "unknown prefixed byte: " <> toHex s
+
+writeMemory :: CPU m => U16 -> U8 -> m ()
+writeMemory addr n =
+    -- HACK: "listen" for changes to timer frequency here
+    if addr == 0xff07
+        then do
+            freq <- use (memoryBus % timerFrequency)
+            modifying' memoryBus (writeByte addr n)
+            freq' <- use (memoryBus % timerFrequency)
+            when (freq' /= freq) $
+                assign' timerCounter (counterFromFrequency freq')
+        else modifying' memoryBus (writeByte addr n)
 
 push :: CPU m => U16 -> m ()
 push n =
@@ -577,7 +591,7 @@ execute = \case
     DEC16 r ->
         modifying' (registers % (target16L r)) (\n -> n - 1) >> pure 8
     CALL n -> do
-        counter <- gets (view programCounter)
+        counter <- use programCounter
         push (counter + 1)
         assign' (registers % pc) n
         pure 24
@@ -586,7 +600,7 @@ execute = \case
         assign' (registers % pc) addr
         pure 16
     PUSH_BC -> do
-        n <- gets (view (registers % bc))
+        n <- use (registers % bc)
         push n
         pure 16
     POP_BC -> do
@@ -645,10 +659,9 @@ updateTimers cycles = do
         assign' timerCounter counter'
         traceShowM counter'
         when (counter' <= 0) $ do
-            -- TODO reset the timer counter, dep. on the frequency
-            -- TODO find a way to react to other frequency changes
-            let timer = s ^. memoryBus % tima
-            if timer == maxBound
+            freq <- use (memoryBus % timerFrequency)
+            assign' timerCounter (counterFromFrequency freq)
+            if s ^. memoryBus % tima == maxBound
                 then do
                     assign' (memoryBus % tima) (s ^. memoryBus % tma)
                     assign' (memoryBus % timerIntRequested) True
@@ -656,7 +669,7 @@ updateTimers cycles = do
 
 updateDivider :: CPU m => Int -> m ()
 updateDivider cycles = do
-    counter <- gets (view dividerCounter)
+    counter <- use dividerCounter
     let counter' = counter + cycles
     assign' dividerCounter counter'
     when (counter' >= 255) $ do
@@ -668,25 +681,25 @@ data TimerFrequency
     | Freq16K
     | Freq64K
     | Freq256K
+    deriving (Eq)
 
-timerFrequencyIso :: Iso' (Bool, Bool) TimerFrequency
-timerFrequencyIso =
-    iso
-        ( \case
-            (False, False) -> Freq4K
-            (False, True) -> Freq256K
-            (True, False) -> Freq64K
-            (True, True) -> Freq16K
-        )
-        ( \case
-            Freq4K -> (False, False)
-            Freq256K -> (False, True)
-            Freq64K -> (True, False)
-            Freq16K -> (True, True)
-        )
+readTimerFrequency :: U8 -> TimerFrequency
+readTimerFrequency n =
+    case (n ^. bit 1, n ^. bit 0) of
+        (False, False) -> Freq4K
+        (False, True) -> Freq256K
+        (True, False) -> Freq64K
+        (True, True) -> Freq16K
 
-timerFrequency :: Lens' MemoryBus TimerFrequency
-timerFrequency = inputClockSelect % timerFrequencyIso
+counterFromFrequency :: TimerFrequency -> Int
+counterFromFrequency = \case
+    Freq4K -> 1024
+    Freq16K -> 256
+    Freq64K -> 64
+    Freq256K -> 16
+
+timerFrequency :: Getter MemoryBus TimerFrequency
+timerFrequency = tac % to readTimerFrequency
 
 handleInterrupts :: CPU m => m ()
 handleInterrupts = do
@@ -704,7 +717,7 @@ handleInterrupts = do
     handleInterrupt interrupt = do
         assign' masterInterruptEnable False
         assign' (memoryBus % interruptFlags % bit interrupt) False
-        counter <- gets (view programCounter)
+        counter <- use programCounter
         push counter
         -- TODO: check whether I have to execute 2 NOPs
         case interrupt of

@@ -128,12 +128,6 @@ divider = io % byte 0x04
 tima :: Lens' MemoryBus U8
 tima = io % byte 0x05
 
-(/\) :: Lens' s a -> Lens' s b -> Lens' s (a, b)
-l1 /\ l2 =
-    lens
-        (\s -> (s ^. l1, s ^. l2))
-        (\s (a, b) -> s & l1 .~ a & l2 .~ b)
-
 tma :: Lens' MemoryBus U8
 tma = io % byte 0x06
 
@@ -142,9 +136,6 @@ tac = io % byte 0x07
 
 timerEnable :: Lens' MemoryBus Bool
 timerEnable = tac % bit 2
-
-inputClockSelect :: Lens' MemoryBus (Bool, Bool)
-inputClockSelect = (tac % bit 1) /\ (tac % bit 0)
 
 interruptFlags :: Lens' MemoryBus U8
 interruptFlags = io % byte 0x0f
