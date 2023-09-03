@@ -8,6 +8,7 @@ import System.Environment qualified as Environment
 import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
+import GameBoy.PPU
 
 maxCyclesPerFrame :: Int
 maxCyclesPerFrame = 69_905
@@ -26,7 +27,6 @@ mainLoop = forever $ do
         void $ updateGraphics cycles
         void $ handleInterrupts
         oneFrame (n + cycles)
-    updateGraphics _ = pure () -- TODO
     renderScreen = pure () -- TODO
 
 main :: IO ()

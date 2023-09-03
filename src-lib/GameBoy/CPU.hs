@@ -92,6 +92,7 @@ data CPUState = CPUState
     , _dividerCounter :: Int
     , _timerCounter :: Int
     , _masterInterruptEnable :: Bool
+    , _scanlineCounter :: Int
     }
     deriving stock (Show)
 
@@ -107,7 +108,7 @@ stackPointer :: Lens' CPUState U16
 stackPointer = registers % sp
 
 mkInitialState :: MemoryBus -> CPUState
-mkInitialState bus = CPUState initialRegisters bus 0 1024 True
+mkInitialState bus = CPUState initialRegisters bus 0 1024 True 456
   where
     initialRegisters =
         Registers

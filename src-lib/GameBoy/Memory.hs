@@ -78,8 +78,9 @@ writeByte addr n bus
 writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
 writeIO addr n bus =
     case addr of
-        -- writing anything to the divider register resets it
+        -- writing anything to the divider or scanline register resets them
         0xff04 -> bus & divider .~ 0
+        0xff44 -> bus & scanline .~ 0
         _ -> bus & io % byte relativeAddr .~ n
   where
     relativeAddr = addr - 0xff00
@@ -88,6 +89,9 @@ readU16 :: MemoryBus -> U16 -> U16
 readU16 bus addr =
     -- GameBoy is little-endian
     combineBytes (readByte bus $ addr + 1) (readByte bus addr)
+
+scanline :: Lens' MemoryBus U8
+scanline = io % byte 0x44
 
 lcdc :: Lens' MemoryBus U8
 lcdc = io % byte 0x40
@@ -104,14 +108,14 @@ objSize = lcdc % bit 2
 objEnabled :: Lens' MemoryBus Bool
 objEnabled = lcdc % bit 1
 
+lcdStatus :: Lens' MemoryBus U8
+lcdStatus = io % byte 0x41
+
 viewportY :: Lens' MemoryBus U8
 viewportY = io % byte 0x42
 
 viewportX :: Lens' MemoryBus U8
 viewportX = io % byte 0x43
-
-ly :: Lens' MemoryBus U8
-ly = io % byte 0x44
 
 lyc :: Lens' MemoryBus U8
 lyc = io % byte 0x45
