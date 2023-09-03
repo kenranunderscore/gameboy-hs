@@ -27,7 +27,7 @@ mainLoop = forever $ do
     oneFrame n = when (n < maxCyclesPerFrame) $ do
         s <- get
         instr <- fetch
-        cycles <- execute instr -- TODO: this should return cycles it took
+        cycles <- execute instr
         liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
         void $ updateTimers cycles
         void $ updateGraphics cycles
