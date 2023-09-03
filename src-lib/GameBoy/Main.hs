@@ -3,6 +3,7 @@
 module GameBoy.Main (main) where
 
 import Control.Concurrent.Async qualified as Async
+import Control.Exception qualified as Exception
 import Control.Monad
 import Control.Monad.State.Strict
 import Optics
@@ -49,11 +50,10 @@ main = do
 
 runGraphics :: IO ()
 runGraphics = do
-    SDL.initialize [SDL.InitVideo]
-    w <- SDL.createWindow "GameBoy emulator" SDL.defaultWindow
-    renderer <- SDL.createRenderer w (-1) SDL.defaultRenderer
-    SDL.rendererDrawColor renderer $= SDL.V4 0 0 255 255
-    void $ appLoop renderer
+    withSdl $ withSdlWindow $ \w ->
+        withSdlRenderer w $ \renderer -> do
+            SDL.rendererDrawColor renderer $= SDL.V4 0 0 255 255
+            void $ appLoop renderer
   where
     escPressed evt =
         case SDL.eventPayload evt of
@@ -66,3 +66,33 @@ runGraphics = do
         SDL.clear renderer
         SDL.present renderer
         unless (any escPressed evts) (appLoop renderer)
+
+withSdl :: IO a -> IO a
+withSdl =
+    Exception.bracket_
+        ( do
+            SDL.initialize [SDL.InitVideo]
+            putStrLn "SDL initialized"
+        )
+        ( do
+            SDL.quit
+            putStrLn "Shut down SDL"
+        )
+
+withSdlWindow :: (SDL.Window -> IO a) -> IO a
+withSdlWindow =
+    Exception.bracket
+        (SDL.createWindow "GameBoy emulator" SDL.defaultWindow)
+        ( \w -> do
+            SDL.destroyWindow w
+            putStrLn "Window destroyed"
+        )
+
+withSdlRenderer :: SDL.Window -> (SDL.Renderer -> IO a) -> IO a
+withSdlRenderer window =
+    Exception.bracket
+        (SDL.createRenderer window (-1) SDL.defaultRenderer)
+        ( \r -> do
+            SDL.destroyRenderer r
+            putStrLn "Renderer destroyed"
+        )
