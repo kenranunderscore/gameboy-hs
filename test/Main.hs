@@ -22,6 +22,7 @@ tests =
         [ registerTests
         , stackTests
         , determinePixelColorsTests
+        , determineTileAddressTests
         , testCase "combineBytes" $ combineBytes 0x9a 0x3f @?= 0x9a3f
         , testCase "splitIntoBytes with low byte only" $ splitIntoBytes 0x001f @?= (0, 0x1f)
         , testCase "splitIntoBytes with high byte only" $ splitIntoBytes 0xe200 @?= (0xe2, 0)
@@ -92,4 +93,16 @@ determinePixelColorsTests =
                 byte2 = 0b00110101
                 expected = [Color1, Color0, Color3, Color2, Color1, Color3, Color1, Color2]
             determinePixelColors byte1 byte2 @?= expected
+        ]
+
+determineTileAddressTests :: TestTree
+determineTileAddressTests =
+    testGroup
+        "determineTileAddress"
+        [ testCase "handles 8000 addressing mode correctly" $
+            toHex (determineTileAddress 2 Mode8000) @?= "$8020"
+        , testCase "handles 8800 addressing mode without overflowing tile identifier" $
+            toHex (determineTileAddress 2 Mode8800) @?= "$9020"
+        , testCase "handles 8800 addressing mode with overflowing tile identifier" $
+            toHex (determineTileAddress 255 Mode8800) @?= "$8ff0"
         ]

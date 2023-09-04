@@ -7,6 +7,7 @@ module GameBoy.PPU where
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.Bits qualified as Bits
+import Data.Int (Int32)
 import Optics
 
 import Data.Bits ((.&.))
@@ -151,3 +152,14 @@ determinePixelColors b1 b2 =
                 (True, True) -> Color3
         )
         (reverse [0 .. 7])
+
+determineTileAddress :: U8 -> AddressingMode -> U16
+determineTileAddress tileIdentifier = \case
+    Mode8000 ->
+        0x8000 + 16 * fromIntegral tileIdentifier
+    Mode8800 ->
+        let
+            asI8 :: I8 = fromIntegral tileIdentifier
+            asI32 :: Int32 = fromIntegral asI8
+        in
+            fromIntegral $ (0x9000 :: Int32) + 16 * asI32
