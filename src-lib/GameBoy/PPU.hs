@@ -94,6 +94,7 @@ setLcdStatus = do
                 (newMode, needStatInterrupt, newStatus) =
                     determineNextLcdStatus (s ^. scanlineCounter) line status
             when (needStatInterrupt && newMode /= oldMode) $
+                -- FIXME: actually set the mode?
                 assign' (memoryBus % interruptFlags % bit 1) True
             compareValue <- use (memoryBus % lyc)
             -- coincidence check
