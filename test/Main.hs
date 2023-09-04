@@ -10,6 +10,7 @@ import Test.Tasty.HUnit
 import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
+import GameBoy.PPU
 
 main :: IO ()
 main = defaultMain tests
@@ -20,6 +21,7 @@ tests =
         "CPU"
         [ registerTests
         , stackTests
+        , determinePixelColorsTests
         , testCase "combineBytes" $ combineBytes 0x9a 0x3f @?= 0x9a3f
         , testCase "splitIntoBytes with low byte only" $ splitIntoBytes 0x001f @?= (0, 0x1f)
         , testCase "splitIntoBytes with high byte only" $ splitIntoBytes 0xe200 @?= (0xe2, 0)
@@ -78,4 +80,16 @@ stackTests =
             toHex x @?= "$7"
             toHex y @?= "$112e"
             toHex z @?= "$b0a3"
+        ]
+
+determinePixelColorsTests :: TestTree
+determinePixelColorsTests =
+    testGroup
+        "Unit tests for translating two lines of bits into pixel colors"
+        [ testCase "all colors can be read from two bytes" $ do
+            let
+                byte1 = 0b10101110
+                byte2 = 0b00110101
+                expected = [Color1, Color0, Color3, Color2, Color1, Color3, Color1, Color2]
+            determinePixelColors byte1 byte2 @?= expected
         ]

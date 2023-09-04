@@ -136,3 +136,18 @@ determineNextLcdStatus counter line status =
             , Bits.testBit status 3
             , Bits.clearBit (Bits.clearBit status 0) 1
             )
+
+data Color = Color0 | Color1 | Color2 | Color3
+    deriving (Eq, Show)
+
+determinePixelColors :: U8 -> U8 -> [Color]
+determinePixelColors b1 b2 =
+    fmap
+        ( \i ->
+            case (Bits.testBit b2 i, Bits.testBit b1 i) of
+                (False, False) -> Color0
+                (False, True) -> Color1
+                (True, False) -> Color2
+                (True, True) -> Color3
+        )
+        (reverse [0 .. 7])
