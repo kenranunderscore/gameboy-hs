@@ -162,12 +162,14 @@ data Instr
     | LD_derefHL_A
     | LD_HLminus_A
     | LD_HLplus_A
+    | LD_HLderef_u8 U8
     | LD TargetRegister TargetRegister
     | BIT Int TargetRegister
     | BIT_n_derefHL Int
     | JP_u16 U16
     | JR_NZ_i8 I8
     | XOR_A
+    | XOR_A_u8 U8
     | INC TargetRegister
     | INC_derefHL
     | INC16 TargetRegister16
@@ -190,6 +192,7 @@ instance Show Instr where
         LD_u16 rr n -> "LD " <> show rr <> "," <> toHex n
         LD_derefHL_A -> "LD (HL),A"
         LD_HLminus_A -> "LD (HL-),A"
+        LD_HLderef_u8 n -> "LD (HL)," <> toHex n
         LD_HLplus_A -> "LD (HL+),A"
         LD_A_derefDE -> "LD A,(DE)"
         LD_A_FF00plusU8 n -> "LD A,($ff00+" <> toHex n <> ")"
@@ -202,6 +205,7 @@ instance Show Instr where
         JR_NZ_i8 n -> "JR NZ," <> show n
         JP_u16 n -> "JP " <> toHex n
         XOR_A -> "XOR A"
+        XOR_A_u8 n -> "XOR A," <> toHex n
         INC r -> "INC " <> show r
         INC_derefHL -> "INC (HL)"
         INC16 r -> "INC " <> show r
@@ -280,6 +284,7 @@ fetch = do
         0x33 -> pure $ INC16 SP
         0x34 -> pure INC_derefHL
         0x35 -> pure DEC_derefHL
+        0x36 -> LD_HLderef_u8 <$> fetchByteM
         0x3b -> pure $ DEC16 SP
         0x3c -> pure $ INC A
         0x3d -> pure $ DEC A
@@ -343,6 +348,7 @@ fetch = do
         0xcd -> CALL <$> fetchU16M
         0xe0 -> LD_FF00plusU8_A <$> fetchByteM
         0xe2 -> pure LD_FF00plusC_A
+        0xee -> XOR_A_u8 <$> fetchByteM
         0xf0 -> LD_A_FF00plusU8 <$> fetchByteM
         0xf3 -> pure DI
         0xfb -> pure EI
@@ -486,8 +492,25 @@ ld_r_r r r' = do
 execute :: CPU m => Instr -> m Int
 execute = \case
     NOP -> pure 4
-    XOR_A ->
-        assign' (registers % a) 0 >> pure 4
+    XOR_A -> do
+        modifying'
+            registers
+            ( \rs ->
+                rs
+                    & a .~ 0
+                    & flag Zero .~ True
+            )
+        pure 4
+    XOR_A_u8 n -> do
+        modifying'
+            registers
+            ( \rs ->
+                let res = view a rs `Bits.xor` n
+                in rs
+                    & flag Zero .~ (res == 0)
+                    & a .~ res
+            )
+        pure 8
     LD_u16 rr n ->
         assign' (registers % target16L rr) n >> pure 12
     LD_HLminus_A -> do
@@ -500,6 +523,10 @@ execute = \case
         rs <- use registers
         writeMemory (rs ^. hl) (rs ^. a)
         pure 8
+    LD_HLderef_u8 n -> do
+        rs <- use registers
+        writeMemory (rs ^. hl) n
+        pure 12
     LD_A_derefDE -> do
         s <- get
         let addr = s ^. registers % de
