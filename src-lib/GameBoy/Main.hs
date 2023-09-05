@@ -22,8 +22,10 @@ maxCyclesPerFrame = 69_905
 mainLoop :: (MonadIO m, CPU m) => m ()
 mainLoop = forever $ do
     oneFrame 0
+    liftIO $ putStrLn "    [FRAME FINISHED]"
     renderScreen
   where
+    renderScreen = pure ()
     oneFrame n = when (n < maxCyclesPerFrame) $ do
         s <- get
         instr <- fetch
@@ -33,7 +35,6 @@ mainLoop = forever $ do
         void $ updateGraphics cycles
         void $ handleInterrupts
         oneFrame (n + cycles)
-    renderScreen = pure () -- TODO
 
 main :: IO ()
 main = do

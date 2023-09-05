@@ -6,11 +6,14 @@ module GameBoy.PPU where
 
 import Control.Monad
 import Control.Monad.State.Strict
+import Data.Bits ((.&.), (.<<.), (.>>.))
 import Data.Bits qualified as Bits
 import Data.Int (Int32)
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
+import Debug.Trace
 import Optics
 
-import Data.Bits ((.&.))
 import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
@@ -81,7 +84,7 @@ updateGraphics cycles = do
                         assign' (memoryBus % scanline) 0
                     | otherwise -> pure ()
   where
-    drawScanline = pure () -- TODO: draw stuff
+    drawScanline = renderScanlineTiles
 
 setLcdStatus :: CPU m => m ()
 setLcdStatus = do
@@ -141,7 +144,7 @@ determineNextLcdStatus counter line status =
 data Color = Color0 | Color1 | Color2 | Color3
     deriving (Eq, Show)
 
-determinePixelColors :: U8 -> U8 -> [Color]
+determinePixelColors :: U8 -> U8 -> Vector Color
 determinePixelColors b1 b2 =
     fmap
         ( \i ->
@@ -151,15 +154,71 @@ determinePixelColors b1 b2 =
                 (True, False) -> Color2
                 (True, True) -> Color3
         )
-        (reverse [0 .. 7])
+        (Vector.fromList $ reverse [0 .. 7])
 
 determineTileAddress :: U8 -> AddressingMode -> U16
 determineTileAddress tileIdentifier = \case
     Mode8000 ->
         0x8000 + 16 * fromIntegral tileIdentifier
     Mode8800 ->
+        -- TODO: use bit operations
         let
             asI8 :: I8 = fromIntegral tileIdentifier
             asI32 :: Int32 = fromIntegral asI8
         in
             fromIntegral $ (0x9000 :: Int32) + 16 * asI32
+
+type Tile = Vector (Vector Color)
+
+readTile :: MemoryBus -> U16 -> Tile
+readTile bus addr =
+    fmap
+        ( \i ->
+            determinePixelColors
+                (readByte bus (addr + 2 * i))
+                (readByte bus (addr + 2 * i + 1))
+        )
+        (Vector.fromList [0 .. 7])
+
+renderScanlineTiles :: CPU m => m ()
+renderScanlineTiles = do
+    bus <- use memoryBus
+    let
+        y = bus ^. viewportY
+        x = bus ^. viewportX
+        wy = bus ^. windowY
+        wx = bus ^. windowX
+        mode = bus ^. addressingMode
+        useWindow = view displayWindow bus && wy <= view scanline bus
+        tileMapStart = determineTileMapAddr useWindow bus
+        currentLine = bus ^. scanline
+        ypos = if useWindow then currentLine - wy else currentLine + y -- TODO understand -wy
+        vertTileIndexOffset = (ypos .>>. 3) .<<. 5
+        -- TODO: "preload" only the necessary tiles, _then_ loop
+        scanlinePixels =
+            fmap
+                ( \i ->
+                    let
+                        xpos = x + i
+                        horTileIndex = xpos .>>. 3
+                        tileIdentifierAddr = tileMapStart + fromIntegral vertTileIndexOffset + fromIntegral horTileIndex
+                        tileIdentifier = readByte bus tileIdentifierAddr
+                        tileAddr = determineTileAddress tileIdentifier mode
+                        rowIndex = ypos `mod` 8
+                        -- TODO: useWindow: different
+                        colors = readTile bus tileAddr Vector.! fromIntegral rowIndex
+                    in
+                        colors Vector.! fromIntegral (xpos `mod` 8)
+                )
+                [0 .. 159]
+    traceShowM scanlinePixels
+    pure ()
+  where
+    determineTileMapAddr useWindow bus =
+        tileMapAreaToAddr $
+            if useWindow
+                then bus ^. windowTileMapArea
+                else bus ^. bgTileMapArea
+    tileMapAreaToAddr = \case
+        Area9800 -> 0x9800
+        Area9C00 -> 0x9C00

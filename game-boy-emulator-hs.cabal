@@ -10,7 +10,7 @@ build-type:      Simple
 extra-doc-files: CHANGELOG.md
 
 common warnings
-  ghc-options: -Wall
+  ghc-options: -Wall -threaded
 
 library
   import:           warnings
@@ -29,6 +29,7 @@ library
     , mtl
     , optics
     , sdl2
+    , vector
 
   hs-source-dirs:   src-lib
   default-language: GHC2021
@@ -57,3 +58,4 @@ test-suite game-boy-emulator-hs-test
     , optics
     , tasty
     , tasty-hunit
+    , vector
