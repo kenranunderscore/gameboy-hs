@@ -1,5 +1,4 @@
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -16,24 +15,7 @@ import Optics
 
 import GameBoy.BitStuff
 import GameBoy.Memory
-
-data Registers = Registers
-    { _a :: U8
-    , _b :: U8
-    , _c :: U8
-    , _d :: U8
-    , _e :: U8
-    , _h :: U8
-    , _l :: U8
-    , -- TODO: benchmark later whether a simple Haskell value can be used here
-      -- to make everything more readable
-      _f :: U8
-    , _pc :: U16
-    , _sp :: U16
-    }
-    deriving stock (Eq)
-
-makeLenses ''Registers
+import GameBoy.State
 
 -- | Lower 4 bits of the F register.
 data Flag = Zero | Negative | HalfCarry | Carry
@@ -55,78 +37,10 @@ clearFlag fl = set (flag fl) False
 setFlag :: Flag -> Registers -> Registers
 setFlag fl = set (flag fl) True
 
-combineRegisters :: Lens' Registers U8 -> Lens' Registers U8 -> Lens' Registers U16
-combineRegisters hiL loL =
-    lens
-        (\r -> combineBytes (view hiL r) (view loL r))
-        (\r n -> let (hi, lo) = splitIntoBytes n in r & hiL .~ hi & loL .~ lo)
-
-bc :: Lens' Registers U16
-bc = combineRegisters b c
-
-de :: Lens' Registers U16
-de = combineRegisters d e
-
-hl :: Lens' Registers U16
-hl = combineRegisters h l
-
-{- FOURMOLU_DISABLE -}
-instance Show Registers where
-    show r = mconcat
-        [ "A  = " , toHex (view a r)
-        , "\nF  = " , toHex (view f r)
-        , "\nB  = " , toHex (view b r)
-        , "\nC  = " , toHex (view c r) , "    BC = " , toHex (view bc r)
-        , "\nD  = " , toHex (view d r)
-        , "\nE  = " , toHex (view e r) , "    DE = " , toHex (view de r)
-        , "\nH  = " , toHex (view h r)
-        , "\nL  = " , toHex (view l r) , "    HL = " , toHex (view hl r)
-        , "\nPC = " , toHex (view pc r)
-        , "\nSP = " , toHex (view sp r)
-        ]
-{- FOURMOLU_ENABLE -}
-
-data CPUState = CPUState
-    { _registers :: Registers
-    , _memoryBus :: MemoryBus
-    , _dividerCounter :: Int
-    , _timerCounter :: Int
-    , _masterInterruptEnable :: Bool
-    , _scanlineCounter :: Int
-    }
-    deriving stock (Show)
-
-makeLenses ''CPUState
-
 hasFlag :: Flag -> CPUState -> Bool
 hasFlag fl = view (registers % flag fl)
 
-programCounter :: Lens' CPUState U16
-programCounter = registers % pc
-
-stackPointer :: Lens' CPUState U16
-stackPointer = registers % sp
-
-mkInitialState :: MemoryBus -> CPUState
-mkInitialState bus = CPUState initialRegisters bus 0 1024 True 456
-  where
-    initialRegisters =
-        Registers
-            { _a = 0
-            , _b = 0
-            , _c = 0
-            , _d = 0
-            , _e = 0
-            , _h = 0
-            , _l = 0
-            , _f = 0
-            , _pc = 0x100 -- start without BIOS for now
-            , _sp = 0xfffe
-            }
-
-type CPU m = MonadState CPUState m
-
-advance :: CPU m => U16 -> m ()
+advance :: GameBoy m => U16 -> m ()
 advance n = modifying' programCounter (+ n)
 
 data TargetRegister = A | B | C | D | E | H | L
@@ -229,23 +143,23 @@ instance Show Instr where
         NOP -> "NOP"
         CP_A_u8 n -> "CP A," <> toHex n
 
-fetchByteM :: CPU m => m U8
+fetchByteM :: GameBoy m => m U8
 fetchByteM = do
     s <- get
     advance 1
     pure $ readByte (view memoryBus s) (view programCounter s)
 
-fetchI8M :: CPU m => m I8
+fetchI8M :: GameBoy m => m I8
 fetchI8M = do
     fromIntegral <$> fetchByteM
 
-fetchU16M :: CPU m => m U16
+fetchU16M :: GameBoy m => m U16
 fetchU16M = do
     s <- get
     advance 2
     pure $ readU16 (view memoryBus s) (view programCounter s)
 
-fetch :: CPU m => m Instr
+fetch :: GameBoy m => m Instr
 fetch = do
     s <- get
     let
@@ -364,7 +278,7 @@ fetch = do
         0xfe -> CP_A_u8 <$> fetchByteM
         unknown -> error $ "unknown opcode: " <> toHex unknown
 
-fetchPrefixed :: CPU m => MemoryBus -> m Instr
+fetchPrefixed :: GameBoy m => MemoryBus -> m Instr
 fetchPrefixed bus = do
     n <- readU16 bus <$> use programCounter
     advance 1
@@ -428,7 +342,7 @@ fetchPrefixed bus = do
         0x7f -> pure $ BIT 7 A
         s -> error $ "unknown prefixed byte: " <> toHex s
 
-writeMemory :: CPU m => U16 -> U8 -> m ()
+writeMemory :: GameBoy m => U16 -> U8 -> m ()
 writeMemory addr n =
     case addr of
         0xff46 ->
@@ -443,7 +357,7 @@ writeMemory addr n =
                 assign' timerCounter (counterFromFrequency freq')
         _ -> modifying' memoryBus (writeByte addr n)
 
-push :: CPU m => U16 -> m ()
+push :: GameBoy m => U16 -> m ()
 push n = do
     s <- get
     let curr = s ^. stackPointer
@@ -453,14 +367,14 @@ push n = do
   where
     (hi, lo) = splitIntoBytes n
 
-pop :: CPU m => m U16
+pop :: GameBoy m => m U16
 pop = do
     -- TODO: do I have to zero the popped memory location?
     s <- get
     put (s & registers % sp %~ (+ 2))
     pure $ readU16 (view memoryBus s) (view stackPointer s)
 
-dec :: CPU m => Lens' Registers U8 -> m Int
+dec :: GameBoy m => Lens' Registers U8 -> m Int
 dec reg = do
     modify' $ \s ->
         let
@@ -476,7 +390,7 @@ dec reg = do
                        )
     pure 4
 
-inc :: CPU m => Lens' Registers U8 -> m Int
+inc :: GameBoy m => Lens' Registers U8 -> m Int
 inc reg = do
     modify' $ \s ->
         let
@@ -492,13 +406,13 @@ inc reg = do
                        )
     pure 4
 
-ld_r_r :: CPU m => TargetRegister -> TargetRegister -> m Int
+ld_r_r :: GameBoy m => TargetRegister -> TargetRegister -> m Int
 ld_r_r r r' = do
     modify' $ \s ->
         s & registers % (targetL r) .~ (s ^. registers % targetL r')
     pure 4
 
-execute :: CPU m => Instr -> m Int
+execute :: GameBoy m => Instr -> m Int
 execute = \case
     NOP -> pure 4
     XOR_A -> do
@@ -704,7 +618,7 @@ execute = \case
                     . set (flag Carry) (val < n)
         pure 8
 
-updateTimers :: CPU m => Int -> m ()
+updateTimers :: GameBoy m => Int -> m ()
 updateTimers cycles = do
     updateDivider cycles
     s <- get
@@ -721,7 +635,7 @@ updateTimers cycles = do
                     assign' (memoryBus % timerIntRequested) True
                 else modifying' (memoryBus % tima) (+ 1)
 
-updateDivider :: CPU m => Int -> m ()
+updateDivider :: GameBoy m => Int -> m ()
 updateDivider cycles = do
     counter <- use dividerCounter
     let counter' = counter + cycles
@@ -755,7 +669,7 @@ counterFromFrequency = \case
 timerFrequency :: Getter MemoryBus TimerFrequency
 timerFrequency = tac % to readTimerFrequency
 
-handleInterrupts :: CPU m => m ()
+handleInterrupts :: GameBoy m => m ()
 handleInterrupts = do
     s <- get
     when (view masterInterruptEnable s) $ do
@@ -782,7 +696,7 @@ handleInterrupts = do
             4 -> assign' programCounter 0x60 -- Joypad
             s -> error $ "unhandled interrupt: " <> show s
 
-dmaTransfer :: CPU m => U8 -> m ()
+dmaTransfer :: GameBoy m => U8 -> m ()
 dmaTransfer n = do
     let startAddr :: U16 = Bits.shiftL (fromIntegral n) 8 -- times 0x100
     bus <- use memoryBus

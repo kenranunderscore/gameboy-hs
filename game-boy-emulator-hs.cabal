@@ -20,6 +20,7 @@ library
     GameBoy.Main
     GameBoy.Memory
     GameBoy.PPU
+    GameBoy.State
 
   build-depends:
     , array

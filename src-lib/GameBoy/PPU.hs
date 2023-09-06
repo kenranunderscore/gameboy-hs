@@ -15,8 +15,8 @@ import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
-import GameBoy.CPU
 import GameBoy.Memory
+import GameBoy.State
 
 data TileMapArea = Area9800 | Area9C00
 
@@ -54,16 +54,7 @@ priorityIso =
 bgWindowMasterPriority :: Lens' MemoryBus Priority
 bgWindowMasterPriority = lcdc % bit 0 % priorityIso
 
-data ObjectAttributes = ObjectAttributes
-    { _y :: U8
-    , _x :: U8
-    , _tile :: U8
-    , _flags :: U8
-    }
-
-makeLenses ''ObjectAttributes
-
-updateGraphics :: CPU m => Int -> m ()
+updateGraphics :: GameBoy m => Int -> m ()
 updateGraphics cycles = do
     setLcdStatus
     s <- get
@@ -77,16 +68,14 @@ updateGraphics cycles = do
                 line <- use (memoryBus % scanline)
                 if
                     | line < 144 ->
-                        drawScanline
+                        renderScanlineTiles
                     | line == 144 ->
                         assign' (memoryBus % interruptFlags % bit 0) True
                     | line > 153 ->
                         assign' (memoryBus % scanline) 0
                     | otherwise -> pure ()
-  where
-    drawScanline = renderScanlineTiles
 
-setLcdStatus :: CPU m => m ()
+setLcdStatus :: GameBoy m => m ()
 setLcdStatus = do
     s <- get
     let status = s ^. memoryBus % lcdStatus
@@ -180,7 +169,7 @@ readTile bus addr =
         )
         (Vector.fromList [0 .. 7])
 
-renderScanlineTiles :: CPU m => m ()
+renderScanlineTiles :: GameBoy m => m ()
 renderScanlineTiles = do
     bus <- use memoryBus
     let
@@ -211,7 +200,7 @@ renderScanlineTiles = do
                         colors Vector.! fromIntegral (xpos `mod` 8)
                 )
                 [0 .. 159]
-    traceShowM scanlinePixels
+    traceShowM $ length scanlinePixels
     pure ()
   where
     determineTileMapAddr useWindow bus =

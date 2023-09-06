@@ -12,6 +12,7 @@ import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
 import GameBoy.PPU
+import GameBoy.State
 
 main :: IO ()
 main = defaultMain tests

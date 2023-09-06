@@ -15,11 +15,12 @@ import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
 import GameBoy.PPU
+import GameBoy.State
 
 maxCyclesPerFrame :: Int
 maxCyclesPerFrame = 69_905
 
-mainLoop :: (MonadIO m, CPU m) => m ()
+mainLoop :: (MonadIO m, GameBoy m) => m ()
 mainLoop = forever $ do
     oneFrame 0
     liftIO $ putStrLn "    [FRAME FINISHED]"
