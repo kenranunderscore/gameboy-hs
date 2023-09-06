@@ -60,7 +60,9 @@ readByte bus addr
 
 writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
 writeByte addr n bus
-    | addr < 0x8000 = error $ "tried to write to read-only memory at " <> toHex addr
+    -- writes to cartridge ROM cannot happen, but can be used to trigger MBC
+    -- interaction
+    | addr < 0x8000 = bus
     | addr < 0xa000 = writeTo vram 0x8000
     | addr < 0xc000 = writeTo sram 0xa000
     | addr < 0xe000 = writeTo wram 0xc000

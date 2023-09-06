@@ -159,6 +159,7 @@ data Instr
     | LD_u8 TargetRegister U8
     | LD_FF00plusC_A
     | LD_FF00plusU8_A U8
+    | LD_u16_A U16
     | LD_derefHL_A
     | LD_HLminus_A
     | LD_HLplus_A
@@ -200,6 +201,7 @@ instance Show Instr where
         LD_u8 r n -> "LD " <> show r <> "," <> toHex n
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
         LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
+        LD_u16_A n -> "LD (" <> toHex n <> "),A"
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
         JR_NZ_i8 n -> "JR NZ," <> show n
@@ -348,6 +350,7 @@ fetch = do
         0xcd -> CALL <$> fetchU16M
         0xe0 -> LD_FF00plusU8_A <$> fetchByteM
         0xe2 -> pure LD_FF00plusC_A
+        0xea -> LD_u16_A <$> fetchU16M
         0xee -> XOR_A_u8 <$> fetchByteM
         0xf0 -> LD_A_FF00plusU8 <$> fetchByteM
         0xf3 -> pure DI
@@ -540,6 +543,10 @@ execute = \case
         assign' (registers % targetL r) n >> pure 8
     LD r r' ->
         ld_r_r r r'
+    LD_u16_A n -> do
+        rs <- use registers
+        writeMemory n (rs ^. a)
+        pure 16
     LD_FF00plusC_A -> do
         s <- get
         let offset = fromIntegral $ s ^. registers % c
