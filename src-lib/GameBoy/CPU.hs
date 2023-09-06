@@ -8,7 +8,7 @@ module GameBoy.CPU where
 
 import Control.Monad
 import Control.Monad.State.Strict
-import Data.Bits ((.&.))
+import Data.Bits ((.&.), (.|.))
 import Data.Bits qualified as Bits
 import Debug.Trace
 import Optics
@@ -103,6 +103,10 @@ data Instr
     | EI
     | NOP
     | CP_A_u8 U8
+    | OR TargetRegister
+    | AND TargetRegister
+    | SUB TargetRegister
+    | ADD TargetRegister
 
 instance Show Instr where
     show = \case
@@ -142,6 +146,10 @@ instance Show Instr where
         EI -> "EI"
         NOP -> "NOP"
         CP_A_u8 n -> "CP A," <> toHex n
+        OR r -> "OR A," <> show r
+        AND r -> "OR A," <> show r
+        SUB r -> "OR A," <> show r
+        ADD r -> "OR A," <> show r
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -261,7 +269,35 @@ fetch = do
         0x7c -> pure $ LD A H
         0x7d -> pure $ LD A L
         0x7f -> pure $ LD A A
+        0x80 -> pure $ ADD B
+        0x81 -> pure $ ADD C
+        0x82 -> pure $ ADD D
+        0x83 -> pure $ ADD E
+        0x84 -> pure $ ADD H
+        0x85 -> pure $ ADD L
+        0x87 -> pure $ ADD A
+        0x90 -> pure $ SUB B
+        0x91 -> pure $ SUB C
+        0x92 -> pure $ SUB D
+        0x93 -> pure $ SUB E
+        0x94 -> pure $ SUB H
+        0x95 -> pure $ SUB L
+        0x97 -> pure $ SUB A
+        0xa0 -> pure $ AND B
+        0xa1 -> pure $ AND C
+        0xa2 -> pure $ AND D
+        0xa3 -> pure $ AND E
+        0xa4 -> pure $ AND H
+        0xa5 -> pure $ AND L
+        0xa7 -> pure $ AND A
         0xaf -> pure XOR_A
+        0xb0 -> pure $ OR B
+        0xb1 -> pure $ OR C
+        0xb2 -> pure $ OR D
+        0xb3 -> pure $ OR E
+        0xb4 -> pure $ OR H
+        0xb5 -> pure $ OR L
+        0xb7 -> pure $ OR A
         0xc1 -> pure POP_BC
         0xc3 -> JP_u16 <$> fetchU16M
         0xc5 -> pure PUSH_BC
@@ -617,6 +653,62 @@ execute = \case
                     -- TODO: implement half carry
                     . set (flag Carry) (val < n)
         pure 8
+    OR r -> do
+        modifying' registers $ \rs ->
+            let
+                val = rs ^. targetL r
+                res = rs ^. a .|. val
+            in
+                rs
+                    & set a res
+                        . clearFlag Negative
+                        . clearFlag Carry
+                        . clearFlag HalfCarry
+                        . set (flag Zero) (res == 0)
+        pure 4
+    AND r -> do
+        modifying' registers $ \rs ->
+            let
+                val = rs ^. targetL r
+                res = rs ^. a .&. val
+            in
+                rs
+                    & set a res
+                        . clearFlag Negative
+                        . clearFlag Carry
+                        . setFlag HalfCarry
+                        . set (flag Zero) (res == 0)
+        pure 4
+    ADD r -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. a
+                val = rs ^. targetL r
+                res = orig + val
+                needsHalfCarry = (val .&. 0x0f) + (orig .&. 0x0f) > 0x0f
+                needsCarry = (fromIntegral @_ @U16 val .&. 0xff) + (fromIntegral orig .&. 0xff) > 0xff
+            in
+                rs
+                    & set a res
+                        . clearFlag Negative
+                        . set (flag Carry) needsCarry
+                        . set (flag HalfCarry) needsHalfCarry
+                        . set (flag Zero) (res == 0)
+        pure 4
+    SUB r -> do
+        modifying' registers $ \rs ->
+            let
+                val = rs ^. targetL r
+                res = rs ^. a - val
+            in
+                rs
+                    & set a res
+                        . clearFlag Negative
+                        -- FIXME:
+                        -- . clearFlag Carry
+                        -- . setFlag HalfCarry
+                        . set (flag Zero) (res == 0)
+        pure 4
 
 updateTimers :: GameBoy m => Int -> m ()
 updateTimers cycles = do
