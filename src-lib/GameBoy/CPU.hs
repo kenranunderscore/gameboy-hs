@@ -156,6 +156,8 @@ data Instr
     = LD_u16 TargetRegister16 U16
     | LD_A_derefDE
     | LD_A_FF00plusU8 U8
+    | LD_A_HLplus
+    | LD_A_HLminus
     | LD_u8 TargetRegister U8
     | LD_FF00plusC_A
     | LD_FF00plusU8_A U8
@@ -195,6 +197,8 @@ instance Show Instr where
         LD_HLminus_A -> "LD (HL-),A"
         LD_HLderef_u8 n -> "LD (HL)," <> toHex n
         LD_HLplus_A -> "LD (HL+),A"
+        LD_A_HLplus -> "LD A,(HL+)"
+        LD_A_HLminus -> "LD A,(HL-)"
         LD_A_derefDE -> "LD A,(DE)"
         LD_A_FF00plusU8 n -> "LD A,($ff00+" <> toHex n <> ")"
         LD r r' -> "LD " <> show r <> "," <> show r'
@@ -277,6 +281,7 @@ fetch = do
         0x24 -> pure $ INC H
         0x25 -> pure $ DEC H
         0x26 -> LD_u8 H <$> fetchByteM
+        0x2a -> pure LD_A_HLplus
         0x2b -> pure $ DEC16 HL
         0x2c -> pure $ INC L
         0x2d -> pure $ DEC L
@@ -287,6 +292,7 @@ fetch = do
         0x34 -> pure INC_derefHL
         0x35 -> pure DEC_derefHL
         0x36 -> LD_HLderef_u8 <$> fetchByteM
+        0x3a -> pure LD_A_HLminus
         0x3b -> pure $ DEC16 SP
         0x3c -> pure $ INC A
         0x3d -> pure $ DEC A
@@ -517,14 +523,14 @@ execute = \case
     LD_u16 rr n ->
         assign' (registers % target16L rr) n >> pure 12
     LD_HLminus_A -> do
-        modifying' (registers % hl) (\x -> x - 1)
         rs <- use registers
         writeMemory (rs ^. hl) (rs ^. a)
+        modifying' (registers % hl) (\x -> x - 1)
         pure 8
     LD_HLplus_A -> do
-        modifying' (registers % hl) (+ 1)
         rs <- use registers
         writeMemory (rs ^. hl) (rs ^. a)
+        modifying' (registers % hl) (+ 1)
         pure 8
     LD_HLderef_u8 n -> do
         rs <- use registers
@@ -534,6 +540,26 @@ execute = \case
         s <- get
         let addr = s ^. registers % de
         assign' (registers % a) (readByte (view memoryBus s) addr)
+        pure 8
+    LD_A_HLplus -> do
+        s <- get
+        modifying'
+            registers
+            ( \rs ->
+                rs
+                    & a .~ readByte (view memoryBus s) (rs ^. hl)
+                    & hl %~ (+ 1)
+            )
+        pure 8
+    LD_A_HLminus -> do
+        s <- get
+        modifying'
+            registers
+            ( \rs ->
+                rs
+                    & a .~ readByte (view memoryBus s) (rs ^. hl)
+                    & hl %~ (\x -> x - 1)
+            )
         pure 8
     LD_A_FF00plusU8 n -> do
         modify' $ \s ->
