@@ -1,5 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module GameBoy.PPU where
@@ -11,7 +13,6 @@ import Data.Bits qualified as Bits
 import Data.Int (Int32)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
@@ -54,58 +55,6 @@ priorityIso =
 bgWindowMasterPriority :: Lens' MemoryBus Priority
 bgWindowMasterPriority = lcdc % bit 0 % priorityIso
 
-updateGraphics :: GameBoy m => Int -> m ()
-updateGraphics cycles = do
-    setLcdStatus
-    s <- get
-    when (s ^. memoryBus % lcdEnable) $ do
-        let counter = s ^. scanlineCounter - cycles
-        if counter > 0
-            then assign' scanlineCounter counter
-            else do
-                assign' scanlineCounter 456
-                modifying' (memoryBus % scanline) (+ 1)
-                line <- use (memoryBus % scanline)
-                if
-                    | line < 144 ->
-                        renderScanlineTiles
-                    | line == 144 ->
-                        assign' (memoryBus % interruptFlags % bit 0) True
-                    | line > 153 ->
-                        assign' (memoryBus % scanline) 0
-                    | otherwise -> pure ()
-
-setLcdStatus :: GameBoy m => m ()
-setLcdStatus = do
-    s <- get
-    let status = s ^. memoryBus % lcdStatus
-    if s ^. memoryBus % lcdEnable
-        then do
-            let
-                line = s ^. memoryBus % scanline
-                oldMode = (s ^. memoryBus % lcdStatus) .&. 0b11
-                (newMode, needStatInterrupt, newStatus) =
-                    determineNextLcdStatus (s ^. scanlineCounter) line status
-            when (needStatInterrupt && newMode /= oldMode) $
-                -- FIXME: actually set the mode?
-                assign' (memoryBus % interruptFlags % bit 1) True
-            compareValue <- use (memoryBus % lyc)
-            -- coincidence check
-            if line == compareValue
-                then do
-                    let finalStatus = Bits.setBit newStatus 2
-                    when (Bits.testBit finalStatus 6) $
-                        (assign' (memoryBus % interruptFlags % bit 1) True)
-                    assign' (memoryBus % lcdStatus) finalStatus
-                else assign' (memoryBus % lcdStatus) (Bits.clearBit newStatus 2)
-        else do
-            assign' scanlineCounter 456
-            assign' (memoryBus % scanline) 0
-            -- TODO refactor mode reading/setting
-            -- set vblank mode
-            let status' = Bits.setBit (Bits.clearBit status 1) 0
-            assign' (memoryBus % lcdStatus) status'
-
 determineNextLcdStatus :: Int -> U8 -> U8 -> (U8, Bool, U8)
 determineNextLcdStatus counter line status =
     if
@@ -131,7 +80,7 @@ determineNextLcdStatus counter line status =
             )
 
 data Color = Color0 | Color1 | Color2 | Color3
-    deriving (Eq, Show)
+    deriving (Eq, Show, Enum)
 
 determinePixelColors :: U8 -> U8 -> Vector Color
 determinePixelColors b1 b2 =
@@ -169,9 +118,15 @@ readTile bus addr =
         )
         (Vector.fromList [0 .. 7])
 
-renderScanlineTiles :: GameBoy m => m ()
-renderScanlineTiles = do
-    bus <- use memoryBus
+data ScanlineColors = ScanlineColors
+    { _index :: Int
+    , _colors :: Vector Color
+    }
+
+makeLenses ''ScanlineColors
+
+readScanlineColors :: MemoryBus -> ScanlineColors
+readScanlineColors bus =
     let
         y = bus ^. viewportY
         x = bus ^. viewportX
@@ -179,12 +134,13 @@ renderScanlineTiles = do
         wx = bus ^. windowX
         mode = bus ^. addressingMode
         useWindow = view displayWindow bus && wy <= view scanline bus
-        tileMapStart = determineTileMapAddr useWindow bus
+        tileMapStart = determineTileMapAddr useWindow
         currentLine = bus ^. scanline
         ypos = if useWindow then currentLine - wy else currentLine + y -- TODO understand -wy
         vertTileIndexOffset = (ypos .>>. 3) .<<. 5
+    in
         -- TODO: "preload" only the necessary tiles, _then_ loop
-        scanlinePixels =
+        ScanlineColors (fromIntegral currentLine) $
             fmap
                 ( \i ->
                     let
@@ -200,10 +156,8 @@ renderScanlineTiles = do
                         colors Vector.! fromIntegral (xpos `mod` 8)
                 )
                 [0 .. 159]
-    traceShowM $ length scanlinePixels
-    pure ()
   where
-    determineTileMapAddr useWindow bus =
+    determineTileMapAddr useWindow =
         tileMapAreaToAddr $
             if useWindow
                 then bus ^. windowTileMapArea
@@ -211,3 +165,65 @@ renderScanlineTiles = do
     tileMapAreaToAddr = \case
         Area9800 -> 0x9800
         Area9C00 -> 0x9C00
+
+setLcdStatus :: GameBoy m => m ()
+setLcdStatus = do
+    s <- get
+    let status = s ^. memoryBus % lcdStatus
+    if s ^. memoryBus % lcdEnable
+        then do
+            let
+                line = s ^. memoryBus % scanline
+                oldMode = (s ^. memoryBus % lcdStatus) .&. 0b11
+                (newMode, needStatInterrupt, newStatus) =
+                    determineNextLcdStatus (s ^. scanlineCounter) line status
+            when (needStatInterrupt && newMode /= oldMode) $
+                -- FIXME: actually set the mode?
+                assign' (memoryBus % interruptFlags % bit 1) True
+            compareValue <- use (memoryBus % lyc)
+            -- coincidence check
+            if line == compareValue
+                then do
+                    let finalStatus = Bits.setBit newStatus 2
+                    when (Bits.testBit finalStatus 6) $
+                        (assign' (memoryBus % interruptFlags % bit 1) True)
+                    assign' (memoryBus % lcdStatus) finalStatus
+                else assign' (memoryBus % lcdStatus) (Bits.clearBit newStatus 2)
+        else do
+            assign' scanlineCounter 456
+            assign' (memoryBus % scanline) 0
+            -- TODO refactor mode reading/setting
+            -- set vblank mode
+            let status' = Bits.setBit (Bits.clearBit status 1) 0
+            assign' (memoryBus % lcdStatus) status'
+
+updateGraphics :: GameBoy m => Int -> m ()
+updateGraphics cycles = do
+    setLcdStatus
+    s <- get
+    when (s ^. memoryBus % lcdEnable) $ do
+        let counter = s ^. scanlineCounter - cycles
+        if counter > 0
+            then assign' scanlineCounter counter
+            else do
+                assign' scanlineCounter 456
+                modifying' (memoryBus % scanline) (+ 1)
+                line <- use (memoryBus % scanline)
+                if
+                    | line < 144 -> do
+                        bus <- use memoryBus
+                        let scanlineColors = readScanlineColors bus
+                        modifying'
+                            screen
+                            ( Vector.//
+                                [
+                                    ( scanlineColors._index
+                                    , fmap (fromIntegral . fromEnum) scanlineColors._colors
+                                    )
+                                ]
+                            )
+                    | line == 144 ->
+                        assign' (memoryBus % interruptFlags % bit 0) True
+                    | line > 153 ->
+                        assign' (memoryBus % scanline) 0
+                    | otherwise -> pure ()
