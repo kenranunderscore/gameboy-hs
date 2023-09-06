@@ -61,6 +61,8 @@ instance Show Registers where
         ]
 {- FOURMOLU_ENABLE -}
 
+type InMemoryScreen = Vector (Vector U8)
+
 data CPUState = CPUState
     { _registers :: Registers
     , _memoryBus :: MemoryBus
@@ -68,7 +70,7 @@ data CPUState = CPUState
     , _timerCounter :: Int
     , _masterInterruptEnable :: Bool
     , _scanlineCounter :: Int
-    , _screen :: Vector (Vector U8)
+    , _screen :: InMemoryScreen
     }
     deriving stock (Show)
 
@@ -100,3 +102,7 @@ mkInitialState bus = CPUState initialRegisters bus 0 1024 True 456 emptyScreen
             }
 
 type GameBoy m = MonadState CPUState m
+
+-- TODO: use something more performant than 'String'
+showScreen :: InMemoryScreen -> String
+showScreen = concatMap (\line -> concatMap show line <> "\n")

@@ -26,12 +26,14 @@ mainLoop = forever $ do
     liftIO $ putStrLn "    [FRAME FINISHED]"
     renderScreen
   where
-    renderScreen = pure ()
+    renderScreen = do
+        scr <- use screen
+        liftIO $ putStrLn (showScreen scr)
     oneFrame n = when (n < maxCyclesPerFrame) $ do
         s <- get
         instr <- fetch
         cycles <- execute instr
-        liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+        -- liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
         void $ updateTimers cycles
         void $ updateGraphics cycles
         void $ handleInterrupts
