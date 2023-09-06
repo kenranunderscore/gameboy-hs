@@ -66,6 +66,8 @@ target16L = \case
     HL -> hl
     SP -> sp
 
+-- NOTE: as of now, things like PUSH SP are possible, which is not a valid
+-- instruction (but could nevertheless be used)
 data Instr
     = LD_u16 TargetRegister16 U16
     | LD_A_derefDE
@@ -85,6 +87,7 @@ data Instr
     | BIT_n_derefHL Int
     | JP_u16 U16
     | JR_NZ_i8 I8
+    | JR_Z_i8 I8
     | XOR_A
     | XOR_A_u8 U8
     | INC TargetRegister
@@ -95,8 +98,10 @@ data Instr
     | DEC16 TargetRegister16
     | CALL U16
     | RET
-    | PUSH_BC
-    | POP_BC
+    | PUSH TargetRegister16
+    | PUSH_AF
+    | POP TargetRegister16
+    | POP_AF
     | RLA
     | RL_C
     | DI
@@ -127,6 +132,7 @@ instance Show Instr where
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
         JR_NZ_i8 n -> "JR NZ," <> show n
+        JR_Z_i8 n -> "JR Z," <> show n
         JP_u16 n -> "JP " <> toHex n
         XOR_A -> "XOR A"
         XOR_A_u8 n -> "XOR A," <> toHex n
@@ -138,8 +144,10 @@ instance Show Instr where
         DEC16 r -> "DEC " <> show r
         CALL n -> "CALL " <> toHex n
         RET -> "RET"
-        PUSH_BC -> "PUSH BC"
-        POP_BC -> "POP BC"
+        PUSH rr -> "PUSH " <> show rr
+        PUSH_AF -> "PUSH AF"
+        POP rr -> "POP " <> show rr
+        POP_AF -> "POP AF"
         RLA -> "RLA"
         RL_C -> "RL C"
         DI -> "DI"
@@ -203,6 +211,7 @@ fetch = do
         0x24 -> pure $ INC H
         0x25 -> pure $ DEC H
         0x26 -> LD_u8 H <$> fetchByteM
+        0x28 -> JR_Z_i8 <$> fetchI8M
         0x2a -> pure LD_A_HLplus
         0x2b -> pure $ DEC16 HL
         0x2c -> pure $ INC L
@@ -298,18 +307,24 @@ fetch = do
         0xb4 -> pure $ OR H
         0xb5 -> pure $ OR L
         0xb7 -> pure $ OR A
-        0xc1 -> pure POP_BC
+        0xc1 -> pure $ POP BC
         0xc3 -> JP_u16 <$> fetchU16M
-        0xc5 -> pure PUSH_BC
+        0xc5 -> pure $ PUSH BC
         0xc9 -> pure RET
         0xcb -> fetchPrefixed bus
         0xcd -> CALL <$> fetchU16M
+        0xd1 -> pure $ POP DE
+        0xd5 -> pure $ PUSH DE
         0xe0 -> LD_FF00plusU8_A <$> fetchByteM
         0xe2 -> pure LD_FF00plusC_A
+        0xe1 -> pure $ POP HL
+        0xe5 -> pure $ PUSH HL
         0xea -> LD_u16_A <$> fetchU16M
         0xee -> XOR_A_u8 <$> fetchByteM
         0xf0 -> LD_A_FF00plusU8 <$> fetchByteM
+        0xf1 -> pure POP_AF
         0xf3 -> pure DI
+        0xf5 -> pure PUSH_AF
         0xfb -> pure EI
         0xfe -> CP_A_u8 <$> fetchByteM
         unknown -> error $ "unknown opcode: " <> toHex unknown
@@ -564,6 +579,12 @@ execute = \case
                 then s & programCounter %~ (+ fromIntegral n)
                 else s
         pure 20
+    JR_Z_i8 n -> do
+        modify' $ \s ->
+            if hasFlag Zero s
+                then s & programCounter %~ (+ fromIntegral n)
+                else s
+        pure 20
     JP_u16 n ->
         assign' (registers % pc) n >> pure 16
     INC r ->
@@ -603,13 +624,21 @@ execute = \case
         addr <- pop
         assign' (registers % pc) addr
         pure 16
-    PUSH_BC -> do
-        n <- use (registers % bc)
+    PUSH rr -> do
+        n <- use (registers % target16L rr)
         push n
         pure 16
-    POP_BC -> do
+    PUSH_AF -> do
+        n <- use (registers % af)
+        push n
+        pure 16
+    POP rr -> do
         n <- pop
-        assign' (registers % bc) n
+        assign' (registers % target16L rr) n
+        pure 12
+    POP_AF -> do
+        n <- pop
+        assign' (registers % af) n
         pure 12
     RLA -> do
         modify' $ \s ->
