@@ -151,9 +151,9 @@ readScanlineColors bus =
                         tileAddr = determineTileAddress tileIdentifier mode
                         rowIndex = ypos `mod` 8
                         -- TODO: useWindow: different
-                        colors = readTile bus tileAddr Vector.! fromIntegral rowIndex
+                        tileColors = readTile bus tileAddr Vector.! fromIntegral rowIndex
                     in
-                        colors Vector.! fromIntegral (xpos `mod` 8)
+                        tileColors Vector.! fromIntegral (xpos `mod` 8)
                 )
                 [0 .. 159]
   where

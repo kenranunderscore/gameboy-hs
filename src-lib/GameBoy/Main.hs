@@ -11,7 +11,6 @@ import SDL (($=))
 import SDL qualified
 import System.Environment qualified as Environment
 
-import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
 import GameBoy.PPU
