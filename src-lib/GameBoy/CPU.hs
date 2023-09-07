@@ -84,6 +84,30 @@ checkFlagCondition cond s = check s
         CSet -> hasFlag Carry
         CUnset -> not . hasFlag Carry
 
+data RestartAddr
+    = Rst00
+    | Rst08
+    | Rst10
+    | Rst18
+    | Rst20
+    | Rst28
+    | Rst30
+    | Rst38
+
+getRestartAddr :: RestartAddr -> U16
+getRestartAddr = \case
+    Rst00 -> 0x00
+    Rst08 -> 0x08
+    Rst10 -> 0x10
+    Rst18 -> 0x18
+    Rst20 -> 0x20
+    Rst28 -> 0x28
+    Rst30 -> 0x30
+    Rst38 -> 0x38
+
+instance Show RestartAddr where
+    show = toHex . getRestartAddr
+
 -- NOTE: as of now, things like PUSH SP are possible, which is not a valid
 -- instruction (but could nevertheless be used)
 data Instr
@@ -102,9 +126,11 @@ data Instr
     | LD_HLderef_u8 U8
     | LD_r_HLderef TargetRegister
     | LD TargetRegister TargetRegister
+    | LD_HL_SP I8
     | BIT Int TargetRegister
     | BIT_n_derefHL Int
-    | JP_u16 U16
+    | JP U16
+    | JP_cc FlagCondition U16
     | JR_cc FlagCondition I8
     | JR I8
     | INC TargetRegister
@@ -136,6 +162,7 @@ data Instr
     | CP TargetRegister
     | XOR TargetRegister
     | XOR_A_u8 U8
+    | RST RestartAddr
 
 instance Show Instr where
     show = \case
@@ -154,9 +181,11 @@ instance Show Instr where
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
         LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
         LD_u16_A n -> "LD (" <> toHex n <> "),A"
+        LD_HL_SP n -> "LD HL,SP" <> (if n < 0 then mempty else "+") <> toHex n
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
-        JP_u16 n -> "JP " <> toHex n
+        JP n -> "JP " <> toHex n
+        JP_cc cond n -> "JP " <> show cond <> "," <> show n
         JR_cc cond n -> "JR " <> show cond <> "," <> show n
         JR n -> "JR " <> show n
         XOR_A_u8 n -> "XOR A," <> toHex n
@@ -188,6 +217,7 @@ instance Show Instr where
         SBC r -> " A," <> show r
         XOR r -> "XOR A," <> show r
         CP r -> "CP A," <> show r
+        RST addr -> "RST " <> show addr
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -375,32 +405,45 @@ fetch = do
         0xbf -> pure $ CP A
         0xc0 -> pure $ RET_cc ZUnset
         0xc1 -> pure $ POP BC
-        0xc3 -> JP_u16 <$> fetchU16M
+        0xc2 -> JP_cc ZUnset <$> fetchU16M
+        0xc3 -> JP <$> fetchU16M
         0xc4 -> CALL_cc ZUnset <$> fetchU16M
         0xc5 -> pure $ PUSH BC
+        0xc7 -> pure $ RST Rst00
         0xc8 -> pure $ RET_cc ZSet
         0xc9 -> pure RET
+        0xca -> JP_cc ZSet <$> fetchU16M
         0xcb -> fetchPrefixed bus
         0xcc -> CALL_cc ZSet <$> fetchU16M
         0xcd -> CALL <$> fetchU16M
+        0xcf -> pure $ RST Rst08
         0xd0 -> pure $ RET_cc CUnset
         0xd1 -> pure $ POP DE
+        0xd2 -> JP_cc CUnset <$> fetchU16M
         0xd4 -> CALL_cc CUnset <$> fetchU16M
         0xd5 -> pure $ PUSH DE
+        0xd7 -> pure $ RST Rst10
         0xd8 -> pure $ RET_cc CSet
+        0xda -> JP_cc CSet <$> fetchU16M
         0xdc -> CALL_cc CSet <$> fetchU16M
+        0xdf -> pure $ RST Rst18
         0xe0 -> LD_FF00plusU8_A <$> fetchByteM
         0xe2 -> pure LD_FF00plusC_A
         0xe1 -> pure $ POP HL
         0xe5 -> pure $ PUSH HL
+        0xe7 -> pure $ RST Rst20
         0xea -> LD_u16_A <$> fetchU16M
         0xee -> XOR_A_u8 <$> fetchByteM
+        0xef -> pure $ RST Rst28
         0xf0 -> LD_A_FF00plusU8 <$> fetchByteM
         0xf1 -> pure POP_AF
         0xf3 -> pure DI
         0xf5 -> pure PUSH_AF
+        0xf7 -> pure $ RST Rst30
+        0xf8 -> LD_HL_SP <$> fetchI8M
         0xfb -> pure EI
         0xfe -> CP_A_u8 <$> fetchByteM
+        0xff -> pure $ RST Rst38
         unknown -> error $ "unknown opcode: " <> toHex unknown
 
 fetchPrefixed :: GameBoy m => MemoryBus -> m Instr
@@ -623,6 +666,23 @@ execute = \case
         s <- get
         writeMemory (s ^. registers % hl) (s ^. registers % a)
         pure 8
+    LD_HL_SP n -> do
+        modifying' registers $ \rs ->
+            let
+                -- FIXME: this is most definitely wrong!!
+                orig = rs ^. sp
+                n' = fromIntegral @_ @U8 n
+                res' = fromIntegral @_ @U16 orig + fromIntegral n'
+                res = fromIntegral res'
+                needsHalfCarry = n' .&. 0x0f + fromIntegral orig .&. 0x0f > 0x0f
+            in
+                rs
+                    & hl .~ res
+                    & clearFlag Zero
+                    & clearFlag Negative
+                    & set (flag Carry) (res' > 0xff)
+                    & set (flag HalfCarry) needsHalfCarry
+        pure 12
     BIT n r -> do
         modify' $ \s ->
             let bitIsSet = Bits.testBit (s ^. registers % targetL r) n
@@ -654,6 +714,12 @@ execute = \case
                 then s & programCounter %~ (+ fromIntegral n)
                 else s
         pure 12
+    JP_cc cond n -> do
+        modify' $ \s ->
+            if checkFlagCondition cond s
+                then s & programCounter .~ n
+                else s
+        pure 12
     RET -> do
         addr <- pop
         assign' programCounter addr
@@ -676,7 +742,7 @@ execute = \case
             push (counter + 1)
             assign' programCounter n
         pure 24
-    JP_u16 n ->
+    JP n ->
         assign' programCounter n >> pure 16
     INC r ->
         inc (targetL r)
@@ -776,6 +842,11 @@ execute = \case
     SBC r -> sbc_a r
     CP r -> cp_a r
     XOR r -> xor_a r
+    RST addr -> do
+        counter <- use programCounter
+        push counter
+        assign' programCounter (getRestartAddr addr)
+        pure 16
 
 or_a :: GameBoy m => TargetRegister -> m Int
 or_a r = do
