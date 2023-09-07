@@ -115,7 +115,9 @@ data Instr
     | DEC_derefHL
     | DEC16 TargetRegister16
     | CALL U16
+    | CALL_cc FlagCondition U16
     | RET
+    | RET_cc FlagCondition
     | PUSH TargetRegister16
     | PUSH_AF
     | POP TargetRegister16
@@ -161,7 +163,9 @@ instance Show Instr where
         DEC_derefHL -> "DEC (HL)"
         DEC16 r -> "DEC " <> show r
         CALL n -> "CALL " <> toHex n
+        CALL_cc cond n -> "CALL " <> show cond <> "," <> toHex n
         RET -> "RET"
+        RET_cc cond -> "RET " <> show cond
         PUSH rr -> "PUSH " <> show rr
         PUSH_AF -> "PUSH AF"
         POP rr -> "POP " <> show rr
@@ -327,14 +331,22 @@ fetch = do
         0xb4 -> pure $ OR H
         0xb5 -> pure $ OR L
         0xb7 -> pure $ OR A
+        0xc0 -> pure $ RET_cc ZUnset
         0xc1 -> pure $ POP BC
         0xc3 -> JP_u16 <$> fetchU16M
+        0xc4 -> CALL_cc ZUnset <$> fetchU16M
         0xc5 -> pure $ PUSH BC
+        0xc8 -> pure $ RET_cc ZSet
         0xc9 -> pure RET
         0xcb -> fetchPrefixed bus
+        0xcc -> CALL_cc ZSet <$> fetchU16M
         0xcd -> CALL <$> fetchU16M
+        0xd0 -> pure $ RET_cc CUnset
         0xd1 -> pure $ POP DE
+        0xd4 -> CALL_cc CUnset <$> fetchU16M
         0xd5 -> pure $ PUSH DE
+        0xd8 -> pure $ RET_cc CSet
+        0xdc -> CALL_cc CSet <$> fetchU16M
         0xe0 -> LD_FF00plusU8_A <$> fetchByteM
         0xe2 -> pure LD_FF00plusC_A
         0xe1 -> pure $ POP HL
@@ -604,8 +616,30 @@ execute = \case
                 then s & programCounter %~ (+ fromIntegral n)
                 else s
         pure 12
+    RET -> do
+        addr <- pop
+        assign' programCounter addr
+        pure 16
+    RET_cc cond -> do
+        s <- get
+        when (checkFlagCondition cond s) $ do
+            addr <- pop
+            assign' programCounter addr
+        pure 16
+    CALL n -> do
+        counter <- use programCounter
+        push (counter + 1)
+        assign' programCounter n
+        pure 24
+    CALL_cc cond n -> do
+        s <- get
+        when (checkFlagCondition cond s) $ do
+            let counter = view programCounter s
+            push (counter + 1)
+            assign' programCounter n
+        pure 24
     JP_u16 n ->
-        assign' (registers % pc) n >> pure 16
+        assign' programCounter n >> pure 16
     INC r ->
         inc (targetL r)
     INC_derefHL -> do
@@ -634,15 +668,6 @@ execute = \case
         pure 12
     DEC16 r ->
         modifying' (registers % (target16L r)) (\n -> n - 1) >> pure 8
-    CALL n -> do
-        counter <- use programCounter
-        push (counter + 1)
-        assign' (registers % pc) n
-        pure 24
-    RET -> do
-        addr <- pop
-        assign' (registers % pc) addr
-        pure 16
     PUSH rr -> do
         n <- use (registers % target16L rr)
         push n
