@@ -46,7 +46,7 @@ hl :: Lens' Registers U16
 hl = combineRegisters h l
 
 af :: Lens' Registers U16
-af = combineRegisters h l
+af = combineRegisters a f
 
 {- FOURMOLU_DISABLE -}
 instance Show Registers where
