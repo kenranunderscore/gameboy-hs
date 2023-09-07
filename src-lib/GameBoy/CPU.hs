@@ -66,6 +66,24 @@ target16L = \case
     HL -> hl
     SP -> sp
 
+data FlagCondition = ZUnset | ZSet | CUnset | CSet
+
+instance Show FlagCondition where
+    show = \case
+        ZUnset -> "NZ"
+        ZSet -> "Z"
+        CUnset -> "NC"
+        CSet -> "C"
+
+checkFlagCondition :: FlagCondition -> CPUState -> Bool
+checkFlagCondition cond s = check s
+  where
+    check = case cond of
+        ZSet -> hasFlag Zero
+        ZUnset -> not . hasFlag Zero
+        CSet -> hasFlag Carry
+        CUnset -> not . hasFlag Carry
+
 -- NOTE: as of now, things like PUSH SP are possible, which is not a valid
 -- instruction (but could nevertheless be used)
 data Instr
@@ -86,8 +104,8 @@ data Instr
     | BIT Int TargetRegister
     | BIT_n_derefHL Int
     | JP_u16 U16
-    | JR_NZ_i8 I8
-    | JR_Z_i8 I8
+    | JR_cc FlagCondition I8
+    | JR I8
     | XOR_A
     | XOR_A_u8 U8
     | INC TargetRegister
@@ -131,9 +149,9 @@ instance Show Instr where
         LD_u16_A n -> "LD (" <> toHex n <> "),A"
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
-        JR_NZ_i8 n -> "JR NZ," <> show n
-        JR_Z_i8 n -> "JR Z," <> show n
         JP_u16 n -> "JP " <> toHex n
+        JR_cc cond n -> "JR " <> show cond <> "," <> show n
+        JR n -> "JR " <> show n
         XOR_A -> "XOR A"
         XOR_A_u8 n -> "XOR A," <> toHex n
         INC r -> "INC " <> show r
@@ -204,25 +222,27 @@ fetch = do
         0x1c -> pure $ INC E
         0x1d -> pure $ DEC E
         0x1e -> LD_u8 E <$> fetchByteM
-        0x20 -> JR_NZ_i8 <$> fetchI8M
+        0x20 -> JR_cc ZUnset <$> fetchI8M
         0x21 -> LD_u16 HL <$> fetchU16M
         0x22 -> pure LD_HLplus_A
         0x23 -> pure $ INC16 HL
         0x24 -> pure $ INC H
         0x25 -> pure $ DEC H
         0x26 -> LD_u8 H <$> fetchByteM
-        0x28 -> JR_Z_i8 <$> fetchI8M
+        0x28 -> JR_cc ZSet <$> fetchI8M
         0x2a -> pure LD_A_HLplus
         0x2b -> pure $ DEC16 HL
         0x2c -> pure $ INC L
         0x2d -> pure $ DEC L
         0x2e -> LD_u8 L <$> fetchByteM
+        0x30 -> JR_cc CUnset <$> fetchI8M
         0x31 -> LD_u16 SP <$> fetchU16M
         0x32 -> pure LD_HLminus_A
         0x33 -> pure $ INC16 SP
         0x34 -> pure INC_derefHL
         0x35 -> pure DEC_derefHL
         0x36 -> LD_HLderef_u8 <$> fetchByteM
+        0x38 -> JR_cc CSet <$> fetchI8M
         0x3a -> pure LD_A_HLminus
         0x3b -> pure $ DEC16 SP
         0x3c -> pure $ INC A
@@ -463,6 +483,8 @@ ld_r_r r r' = do
         s & registers % (targetL r) .~ (s ^. registers % targetL r')
     pure 4
 
+-- TODOs:
+-- - understand instructions taking longer depending on branching
 execute :: GameBoy m => Instr -> m Int
 execute = \case
     NOP -> pure 4
@@ -573,18 +595,15 @@ execute = \case
                         . clearFlag Negative
                         . set (flag Zero) (not bitIsSet)
         pure 12
-    JR_NZ_i8 n -> do
+    JR n -> do
+        modifying' programCounter (+ fromIntegral n)
+        pure 12
+    JR_cc cond n -> do
         modify' $ \s ->
-            if not $ hasFlag Zero s
+            if checkFlagCondition cond s
                 then s & programCounter %~ (+ fromIntegral n)
                 else s
-        pure 20
-    JR_Z_i8 n -> do
-        modify' $ \s ->
-            if hasFlag Zero s
-                then s & programCounter %~ (+ fromIntegral n)
-                else s
-        pure 20
+        pure 12
     JP_u16 n ->
         assign' (registers % pc) n >> pure 16
     INC r ->
