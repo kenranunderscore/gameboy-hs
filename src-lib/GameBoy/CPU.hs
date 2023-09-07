@@ -100,14 +100,13 @@ data Instr
     | LD_HLminus_A
     | LD_HLplus_A
     | LD_HLderef_u8 U8
+    | LD_r_HLderef TargetRegister
     | LD TargetRegister TargetRegister
     | BIT Int TargetRegister
     | BIT_n_derefHL Int
     | JP_u16 U16
     | JR_cc FlagCondition I8
     | JR I8
-    | XOR_A
-    | XOR_A_u8 U8
     | INC TargetRegister
     | INC_derefHL
     | INC16 TargetRegister16
@@ -132,11 +131,17 @@ data Instr
     | AND TargetRegister
     | SUB TargetRegister
     | ADD TargetRegister
+    | ADC TargetRegister
+    | SBC TargetRegister
+    | CP TargetRegister
+    | XOR TargetRegister
+    | XOR_A_u8 U8
 
 instance Show Instr where
     show = \case
         LD_u16 rr n -> "LD " <> show rr <> "," <> toHex n
         LD_derefHL_A -> "LD (HL),A"
+        LD_r_HLderef r -> "LD " <> show r <> ",(HL)"
         LD_HLminus_A -> "LD (HL-),A"
         LD_HLderef_u8 n -> "LD (HL)," <> toHex n
         LD_HLplus_A -> "LD (HL+),A"
@@ -154,7 +159,6 @@ instance Show Instr where
         JP_u16 n -> "JP " <> toHex n
         JR_cc cond n -> "JR " <> show cond <> "," <> show n
         JR n -> "JR " <> show n
-        XOR_A -> "XOR A"
         XOR_A_u8 n -> "XOR A," <> toHex n
         INC r -> "INC " <> show r
         INC_derefHL -> "INC (HL)"
@@ -177,9 +181,13 @@ instance Show Instr where
         NOP -> "NOP"
         CP_A_u8 n -> "CP A," <> toHex n
         OR r -> "OR A," <> show r
-        AND r -> "OR A," <> show r
-        SUB r -> "OR A," <> show r
-        ADD r -> "OR A," <> show r
+        AND r -> "AND A," <> show r
+        SUB r -> "SUB A," <> show r
+        ADD r -> "ADD A," <> show r
+        ADC r -> "ADC A," <> show r
+        SBC r -> " A," <> show r
+        XOR r -> "XOR A," <> show r
+        CP r -> "CP A," <> show r
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -258,6 +266,7 @@ fetch = do
         0x43 -> pure $ LD B E
         0x44 -> pure $ LD B H
         0x45 -> pure $ LD B L
+        0x46 -> pure $ LD_r_HLderef B
         0x47 -> pure $ LD B A
         0x48 -> pure $ LD C B
         0x49 -> pure $ LD C C
@@ -265,6 +274,7 @@ fetch = do
         0x4b -> pure $ LD C E
         0x4c -> pure $ LD C H
         0x4d -> pure $ LD C L
+        0x4e -> pure $ LD_r_HLderef C
         0x4f -> pure $ LD C A
         0x50 -> pure $ LD D B
         0x51 -> pure $ LD D C
@@ -272,6 +282,7 @@ fetch = do
         0x53 -> pure $ LD D E
         0x54 -> pure $ LD D H
         0x55 -> pure $ LD D L
+        0x56 -> pure $ LD_r_HLderef D
         0x57 -> pure $ LD D A
         0x58 -> pure $ LD E B
         0x59 -> pure $ LD E C
@@ -279,6 +290,7 @@ fetch = do
         0x5b -> pure $ LD E E
         0x5c -> pure $ LD E H
         0x5d -> pure $ LD E L
+        0x5e -> pure $ LD_r_HLderef E
         0x5f -> pure $ LD E A
         0x60 -> pure $ LD H B
         0x61 -> pure $ LD H C
@@ -286,6 +298,7 @@ fetch = do
         0x63 -> pure $ LD H E
         0x64 -> pure $ LD H H
         0x65 -> pure $ LD H L
+        0x66 -> pure $ LD_r_HLderef H
         0x67 -> pure $ LD H A
         0x68 -> pure $ LD L B
         0x69 -> pure $ LD L C
@@ -293,6 +306,7 @@ fetch = do
         0x6b -> pure $ LD L E
         0x6c -> pure $ LD L H
         0x6d -> pure $ LD L L
+        0x6e -> pure $ LD_r_HLderef L
         0x6f -> pure $ LD L A
         0x77 -> pure LD_derefHL_A
         0x78 -> pure $ LD A B
@@ -301,6 +315,7 @@ fetch = do
         0x7b -> pure $ LD A E
         0x7c -> pure $ LD A H
         0x7d -> pure $ LD A L
+        0x7e -> pure $ LD_r_HLderef A
         0x7f -> pure $ LD A A
         0x80 -> pure $ ADD B
         0x81 -> pure $ ADD C
@@ -309,6 +324,13 @@ fetch = do
         0x84 -> pure $ ADD H
         0x85 -> pure $ ADD L
         0x87 -> pure $ ADD A
+        0x88 -> pure $ ADC B
+        0x89 -> pure $ ADC C
+        0x8a -> pure $ ADC D
+        0x8b -> pure $ ADC E
+        0x8c -> pure $ ADC H
+        0x8d -> pure $ ADC L
+        0x8f -> pure $ ADC A
         0x90 -> pure $ SUB B
         0x91 -> pure $ SUB C
         0x92 -> pure $ SUB D
@@ -316,6 +338,13 @@ fetch = do
         0x94 -> pure $ SUB H
         0x95 -> pure $ SUB L
         0x97 -> pure $ SUB A
+        0x98 -> pure $ SBC B
+        0x99 -> pure $ SBC C
+        0x9a -> pure $ SBC D
+        0x9b -> pure $ SBC E
+        0x9c -> pure $ SBC H
+        0x9d -> pure $ SBC L
+        0x9f -> pure $ SBC A
         0xa0 -> pure $ AND B
         0xa1 -> pure $ AND C
         0xa2 -> pure $ AND D
@@ -323,7 +352,13 @@ fetch = do
         0xa4 -> pure $ AND H
         0xa5 -> pure $ AND L
         0xa7 -> pure $ AND A
-        0xaf -> pure XOR_A
+        0xa8 -> pure $ XOR B
+        0xa9 -> pure $ XOR C
+        0xaa -> pure $ XOR D
+        0xab -> pure $ XOR E
+        0xac -> pure $ XOR H
+        0xad -> pure $ XOR L
+        0xaf -> pure $ XOR A
         0xb0 -> pure $ OR B
         0xb1 -> pure $ OR C
         0xb2 -> pure $ OR D
@@ -331,6 +366,13 @@ fetch = do
         0xb4 -> pure $ OR H
         0xb5 -> pure $ OR L
         0xb7 -> pure $ OR A
+        0xb8 -> pure $ CP B
+        0xb9 -> pure $ CP C
+        0xba -> pure $ CP D
+        0xbb -> pure $ CP E
+        0xbc -> pure $ CP H
+        0xbd -> pure $ CP L
+        0xbf -> pure $ CP A
         0xc0 -> pure $ RET_cc ZUnset
         0xc1 -> pure $ POP BC
         0xc3 -> JP_u16 <$> fetchU16M
@@ -500,15 +542,6 @@ ld_r_r r r' = do
 execute :: GameBoy m => Instr -> m Int
 execute = \case
     NOP -> pure 4
-    XOR_A -> do
-        modifying'
-            registers
-            ( \rs ->
-                rs
-                    & a .~ 0
-                    & flag Zero .~ True
-            )
-        pure 4
     XOR_A_u8 n -> do
         modifying'
             registers
@@ -521,6 +554,11 @@ execute = \case
         pure 8
     LD_u16 rr n ->
         assign' (registers % target16L rr) n >> pure 12
+    LD_r_HLderef r -> do
+        s <- get
+        let n = readByte (view memoryBus s) (s ^. registers % hl)
+        assign' (registers % targetL r) n
+        pure 8
     LD_HLminus_A -> do
         rs <- use registers
         writeMemory (rs ^. hl) (rs ^. a)
@@ -718,70 +756,163 @@ execute = \case
         assign' masterInterruptEnable True >> pure 4
     CP_A_u8 n -> do
         modify' $ \s ->
-            let val = s ^. registers % a
-            in s
-                & registers
-                    %~ set (flag Zero) (val == n)
-                    . setFlag Negative
-                    -- TODO: implement half carry
-                    . set (flag Carry) (val < n)
-        pure 8
-    OR r -> do
-        modifying' registers $ \rs ->
             let
-                val = rs ^. targetL r
-                res = rs ^. a .|. val
+                orig = s ^. registers % a
+                res = orig - n
+                needsHalfCarry = orig .&. 0x0f < n .&. 0x0f
             in
-                rs
-                    & set a res
-                        . clearFlag Negative
-                        . clearFlag Carry
-                        . clearFlag HalfCarry
-                        . set (flag Zero) (res == 0)
-        pure 4
-    AND r -> do
-        modifying' registers $ \rs ->
-            let
-                val = rs ^. targetL r
-                res = rs ^. a .&. val
-            in
-                rs
-                    & set a res
-                        . clearFlag Negative
-                        . clearFlag Carry
-                        . setFlag HalfCarry
-                        . set (flag Zero) (res == 0)
-        pure 4
-    ADD r -> do
-        modifying' registers $ \rs ->
-            let
-                orig = rs ^. a
-                val = rs ^. targetL r
-                res = orig + val
-                needsHalfCarry = (val .&. 0x0f) + (orig .&. 0x0f) > 0x0f
-                needsCarry = (fromIntegral @_ @U16 val .&. 0xff) + (fromIntegral orig .&. 0xff) > 0xff
-            in
-                rs
-                    & set a res
-                        . clearFlag Negative
-                        . set (flag Carry) needsCarry
+                s
+                    & registers
+                        %~ set (flag Zero) (res == 0)
+                        . setFlag Negative
                         . set (flag HalfCarry) needsHalfCarry
-                        . set (flag Zero) (res == 0)
-        pure 4
-    SUB r -> do
-        modifying' registers $ \rs ->
-            let
-                val = rs ^. targetL r
-                res = rs ^. a - val
-            in
-                rs
-                    & set a res
-                        . clearFlag Negative
-                        -- FIXME:
-                        -- . clearFlag Carry
-                        -- . setFlag HalfCarry
-                        . set (flag Zero) (res == 0)
-        pure 4
+                        . set (flag Carry) (orig < n)
+        pure 8
+    OR r -> or_a r
+    AND r -> and_a r
+    ADD r -> add_a r
+    SUB r -> sub_a r
+    ADC r -> adc_a r
+    SBC r -> sbc_a r
+    CP r -> cp_a r
+    XOR r -> xor_a r
+
+or_a :: GameBoy m => TargetRegister -> m Int
+or_a r = do
+    modifying' registers $ \rs ->
+        let
+            val = rs ^. targetL r
+            res = rs ^. a .|. val
+        in
+            rs
+                & set a res
+                    . clearFlag Negative
+                    . clearFlag Carry
+                    . clearFlag HalfCarry
+                    . set (flag Zero) (res == 0)
+    pure 4
+
+and_a :: GameBoy m => TargetRegister -> m Int
+and_a r = do
+    modifying' registers $ \rs ->
+        let
+            val = rs ^. targetL r
+            res = rs ^. a .&. val
+        in
+            rs
+                & set a res
+                    . clearFlag Negative
+                    . clearFlag Carry
+                    . setFlag HalfCarry
+                    . set (flag Zero) (res == 0)
+    pure 4
+
+add_a :: GameBoy m => TargetRegister -> m Int
+add_a r = do
+    modifying' registers $ \rs ->
+        let
+            orig = rs ^. a
+            val = rs ^. targetL r
+            res' = fromIntegral @_ @U16 orig + fromIntegral val
+            res = fromIntegral res'
+            needsHalfCarry = (orig .&. 0x0f) + (val .&. 0x0f) > 0x0f
+            needsCarry = res' > 0xff
+        in
+            rs
+                & set a res
+                    . clearFlag Negative
+                    . set (flag Carry) needsCarry
+                    . set (flag HalfCarry) needsHalfCarry
+                    . set (flag Zero) (res == 0)
+    pure 4
+
+xor_a :: GameBoy m => TargetRegister -> m Int
+xor_a r = do
+    modifying' registers $ \rs ->
+        let
+            val = rs ^. targetL r
+            res = rs ^. a `Bits.xor` val
+        in
+            rs
+                & set a res
+                    . clearFlag Negative
+                    . clearFlag Carry
+                    . clearFlag HalfCarry
+                    . set (flag Zero) (res == 0)
+    pure 4
+
+cp_a :: GameBoy m => TargetRegister -> m Int
+cp_a r = do
+    modifying' registers $ \rs ->
+        let
+            orig = rs ^. a
+            val = rs ^. targetL r
+            needsHalfCarry = orig .&. 0x0f < val .&. 0x0f
+            res = orig - val
+        in
+            rs
+                & setFlag Negative
+                    . set (flag Carry) (orig < val)
+                    . set (flag HalfCarry) needsHalfCarry
+                    . set (flag Zero) (res == 0)
+    pure 4
+
+sbc_a :: GameBoy m => TargetRegister -> m Int
+sbc_a r = do
+    modifying' registers $ \rs ->
+        let
+            orig = rs ^. a
+            carry = if rs ^. flag Carry then 1 else 0
+            -- FIXME: check if this correct in case the carry bit overflows
+            -- val
+            val = rs ^. targetL r + carry
+            res = rs ^. a - val
+            needsHalfCarry = orig .&. 0x0f < val .&. 0x0f
+        in
+            rs
+                & set a res
+                    . clearFlag Negative
+                    . set (flag Carry) (orig < val)
+                    . set (flag HalfCarry) needsHalfCarry
+                    . set (flag Zero) (res == 0)
+    pure 4
+
+sub_a :: GameBoy m => TargetRegister -> m Int
+sub_a r = do
+    modifying' registers $ \rs ->
+        let
+            orig = rs ^. a
+            val = rs ^. targetL r
+            res = rs ^. a - val
+            needsHalfCarry = orig .&. 0x0f < val .&. 0x0f
+        in
+            rs
+                & set a res
+                    . clearFlag Negative
+                    . set (flag Carry) (orig < val)
+                    . set (flag HalfCarry) needsHalfCarry
+                    . set (flag Zero) (res == 0)
+    pure 4
+
+adc_a :: GameBoy m => TargetRegister -> m Int
+adc_a r = do
+    modifying' registers $ \rs ->
+        let
+            orig = rs ^. a
+            val = rs ^. targetL r
+            carry = if rs ^. flag Carry then 1 else 0
+            res' = fromIntegral @_ @U16 orig + fromIntegral val + fromIntegral carry
+            needsCarry = res' > 0xff
+            res = fromIntegral res'
+            needsHalfCarry = (orig .&. 0x0f) + (val .&. 0x0f) + carry > 0x0f
+        in
+            rs
+                & set a res
+                    . clearFlag Negative
+                    . set (flag Carry) needsCarry
+                    . set (flag HalfCarry) needsHalfCarry
+                    . set (flag Zero) (res == 0)
+    pure 4
 
 updateTimers :: GameBoy m => Int -> m ()
 updateTimers cycles = do
