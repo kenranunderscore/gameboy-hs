@@ -2,6 +2,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
+-- TODO: check whether using StrictData is beneficial once it works
+
 module GameBoy.State where
 
 import Control.Monad.State.Strict
