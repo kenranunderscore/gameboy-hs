@@ -484,72 +484,72 @@ fetchPrefixed = do
         counter = view programCounter s
         bus = view memoryBus s
     advance 1
-    case readByte bus counter of
-        0x11 -> pure RL_C
-        0x30 -> pure $ SWAP B
-        0x31 -> pure $ SWAP C
-        0x32 -> pure $ SWAP D
-        0x33 -> pure $ SWAP E
-        0x34 -> pure $ SWAP H
-        0x35 -> pure $ SWAP L
-        0x36 -> pure SWAP_derefHL
-        0x37 -> pure $ SWAP A
-        0x48 -> pure $ BIT 1 B
-        0x49 -> pure $ BIT 1 C
-        0x4a -> pure $ BIT 1 D
-        0x4b -> pure $ BIT 1 E
-        0x4c -> pure $ BIT 1 H
-        0x4d -> pure $ BIT 1 L
-        0x4e -> pure $ BIT_n_derefHL 1
-        0x4f -> pure $ BIT 1 A
-        0x50 -> pure $ BIT 2 B
-        0x51 -> pure $ BIT 2 C
-        0x52 -> pure $ BIT 2 D
-        0x53 -> pure $ BIT 2 E
-        0x54 -> pure $ BIT 2 H
-        0x55 -> pure $ BIT 2 L
-        0x56 -> pure $ BIT_n_derefHL 2
-        0x57 -> pure $ BIT 2 A
-        0x58 -> pure $ BIT 3 B
-        0x59 -> pure $ BIT 3 C
-        0x5a -> pure $ BIT 3 D
-        0x5b -> pure $ BIT 3 E
-        0x5c -> pure $ BIT 3 H
-        0x5d -> pure $ BIT 3 L
-        0x5e -> pure $ BIT_n_derefHL 3
-        0x5f -> pure $ BIT 3 A
-        0x60 -> pure $ BIT 4 B
-        0x61 -> pure $ BIT 4 C
-        0x62 -> pure $ BIT 4 D
-        0x63 -> pure $ BIT 4 E
-        0x64 -> pure $ BIT 4 H
-        0x65 -> pure $ BIT 4 L
-        0x66 -> pure $ BIT_n_derefHL 4
-        0x67 -> pure $ BIT 4 A
-        0x68 -> pure $ BIT 5 B
-        0x69 -> pure $ BIT 5 C
-        0x6a -> pure $ BIT 5 D
-        0x6b -> pure $ BIT 5 E
-        0x6c -> pure $ BIT 5 H
-        0x6d -> pure $ BIT 5 L
-        0x6e -> pure $ BIT_n_derefHL 5
-        0x6f -> pure $ BIT 5 A
-        0x70 -> pure $ BIT 6 B
-        0x71 -> pure $ BIT 6 C
-        0x72 -> pure $ BIT 6 D
-        0x73 -> pure $ BIT 6 E
-        0x74 -> pure $ BIT 6 H
-        0x75 -> pure $ BIT 6 L
-        0x76 -> pure $ BIT_n_derefHL 6
-        0x77 -> pure $ BIT 6 A
-        0x78 -> pure $ BIT 7 B
-        0x79 -> pure $ BIT 7 C
-        0x7a -> pure $ BIT 7 D
-        0x7b -> pure $ BIT 7 E
-        0x7c -> pure $ BIT 7 H
-        0x7d -> pure $ BIT 7 L
-        0x7e -> pure $ BIT_n_derefHL 7
-        0x7f -> pure $ BIT 7 A
+    pure $ case readByte bus counter of
+        0x11 -> RL_C
+        0x30 -> SWAP B
+        0x31 -> SWAP C
+        0x32 -> SWAP D
+        0x33 -> SWAP E
+        0x34 -> SWAP H
+        0x35 -> SWAP L
+        0x36 -> SWAP_derefHL
+        0x37 -> SWAP A
+        0x48 -> BIT 1 B
+        0x49 -> BIT 1 C
+        0x4a -> BIT 1 D
+        0x4b -> BIT 1 E
+        0x4c -> BIT 1 H
+        0x4d -> BIT 1 L
+        0x4e -> BIT_n_derefHL 1
+        0x4f -> BIT 1 A
+        0x50 -> BIT 2 B
+        0x51 -> BIT 2 C
+        0x52 -> BIT 2 D
+        0x53 -> BIT 2 E
+        0x54 -> BIT 2 H
+        0x55 -> BIT 2 L
+        0x56 -> BIT_n_derefHL 2
+        0x57 -> BIT 2 A
+        0x58 -> BIT 3 B
+        0x59 -> BIT 3 C
+        0x5a -> BIT 3 D
+        0x5b -> BIT 3 E
+        0x5c -> BIT 3 H
+        0x5d -> BIT 3 L
+        0x5e -> BIT_n_derefHL 3
+        0x5f -> BIT 3 A
+        0x60 -> BIT 4 B
+        0x61 -> BIT 4 C
+        0x62 -> BIT 4 D
+        0x63 -> BIT 4 E
+        0x64 -> BIT 4 H
+        0x65 -> BIT 4 L
+        0x66 -> BIT_n_derefHL 4
+        0x67 -> BIT 4 A
+        0x68 -> BIT 5 B
+        0x69 -> BIT 5 C
+        0x6a -> BIT 5 D
+        0x6b -> BIT 5 E
+        0x6c -> BIT 5 H
+        0x6d -> BIT 5 L
+        0x6e -> BIT_n_derefHL 5
+        0x6f -> BIT 5 A
+        0x70 -> BIT 6 B
+        0x71 -> BIT 6 C
+        0x72 -> BIT 6 D
+        0x73 -> BIT 6 E
+        0x74 -> BIT 6 H
+        0x75 -> BIT 6 L
+        0x76 -> BIT_n_derefHL 6
+        0x77 -> BIT 6 A
+        0x78 -> BIT 7 B
+        0x79 -> BIT 7 C
+        0x7a -> BIT 7 D
+        0x7b -> BIT 7 E
+        0x7c -> BIT 7 H
+        0x7d -> BIT 7 L
+        0x7e -> BIT_n_derefHL 7
+        0x7f -> BIT 7 A
         n -> error $ "unknown prefixed byte: " <> toHex n
 
 writeMemory :: GameBoy m => U16 -> U8 -> m ()
