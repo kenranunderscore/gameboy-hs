@@ -24,7 +24,6 @@ library
     GameBoy.State
 
   build-depends:
-    , array
     , async
     , base
     , bytestring
@@ -54,7 +53,6 @@ test-suite game-boy-emulator-hs-test
   hs-source-dirs:   test
   main-is:          Main.hs
   build-depends:
-    , array
     , base
     , game-boy-emulator-hs
     , mtl

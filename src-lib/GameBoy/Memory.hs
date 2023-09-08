@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
@@ -5,14 +6,14 @@
 module GameBoy.Memory where
 
 import Control.Monad
-import Data.Array (Array, (!), (//))
-import Data.Array qualified as Array
 import Data.ByteString qualified as BS
+import Data.Vector (Vector)
+import Data.Vector qualified as Vector
 import Optics
 
 import GameBoy.BitStuff
 
-type Memory = Array U16 U8
+type Memory = Vector U8
 
 data MemoryBus = MemoryBus
     { _cartridge :: Memory
@@ -41,20 +42,20 @@ makeLenses ''MemoryBus
 byte :: U16 -> Lens' Memory U8
 byte n =
     lens
-        (\mem -> mem Array.! n)
-        (\mem x -> mem // [(n, x)])
+        (\mem -> mem Vector.! fromIntegral n)
+        (\mem x -> mem Vector.// [(fromIntegral n, x)])
 
 readByte :: MemoryBus -> U16 -> U8
 readByte bus addr
-    | addr < 0x8000 = bus._cartridge ! addr
-    | addr < 0xa000 = bus._vram ! (addr - 0x8000)
-    | addr < 0xc000 = bus._sram ! (addr - 0xa000)
-    | addr < 0xe000 = bus._wram ! (addr - 0xc000)
-    | addr < 0xfe00 = bus._wram ! (addr - 0xc000) -- echoes WRAM
-    | addr < 0xfea0 = bus._oam ! (addr - 0xfe00)
+    | addr < 0x8000 = bus._cartridge Vector.! fromIntegral addr
+    | addr < 0xa000 = bus._vram Vector.! fromIntegral (addr - 0x8000)
+    | addr < 0xc000 = bus._sram Vector.! fromIntegral (addr - 0xa000)
+    | addr < 0xe000 = bus._wram Vector.! fromIntegral (addr - 0xc000)
+    | addr < 0xfe00 = bus._wram Vector.! fromIntegral (addr - 0xc000) -- echoes WRAM
+    | addr < 0xfea0 = bus._oam Vector.! fromIntegral (addr - 0xfe00)
     | addr < 0xff00 = 0 -- forbidden area
-    | addr < 0xff80 = bus._io ! (addr - 0xff00)
-    | addr < 0xffff = bus._hram ! (addr - 0xff80)
+    | addr < 0xff80 = bus._io Vector.! fromIntegral (addr - 0xff00)
+    | addr < 0xffff = bus._hram Vector.! fromIntegral (addr - 0xff80)
     | addr == 0xffff = bus._ie
     | otherwise = error "the impossible happened"
 
@@ -155,7 +156,7 @@ dma = io % byte 0x46
 {- FOURMOLU_DISABLE -}
 
 bios :: Memory
-bios = Array.listArray (0, 0xff) $
+bios =
     [ 0x31, 0xfe, 0xff, 0xaf, 0x21, 0xff, 0x9f, 0x32, 0xcb, 0x7c, 0x20, 0xfb, 0x21, 0x26, 0xff, 0x0e
     , 0x11, 0x3e, 0x80, 0x32, 0xe2, 0x0c, 0x3e, 0xf3, 0xe2, 0x32, 0x3e, 0x77, 0x77, 0x3e, 0xfc, 0xe0
     , 0x47, 0x11, 0x04, 0x01, 0x21, 0x10, 0x80, 0x1a, 0xcd, 0x95, 0x00, 0xcd, 0x96, 0x00, 0x13, 0x7b
@@ -175,7 +176,7 @@ bios = Array.listArray (0, 0xff) $
     ]
 
 ioInitialValues :: Memory
-ioInitialValues = Array.listArray (0, 0xff) $
+ioInitialValues =
     [ 0x0f, 0x00, 0x7c, 0xff, 0x00, 0x00, 0x00, 0xf8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
     , 0x80, 0xbf, 0xf3, 0xff, 0xbf, 0xff, 0x3f, 0x00, 0xff, 0xbf, 0x7f, 0xff, 0x9f, 0xff, 0xbf, 0xff
     , 0xff, 0x00, 0x00, 0xbf, 0x77, 0xf3, 0xf1, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
@@ -202,26 +203,25 @@ loadCartridgeFromFile path = do
     let len = BS.length bytes
     when (len > 0x8000) (fail $ "Unexpected cartridge size: " <> show len)
     let padded = BS.unpack bytes <> replicate (0x10000 - len) 0
-    pure $ Array.listArray (0, 0xffff) padded
+    pure $ Vector.fromList padded
 
 defaultMemoryBus :: MemoryBus
 defaultMemoryBus =
     -- TODO: set correct initial values
     MemoryBus
         { _ie = 0x0 -- TODO check this
-        , _hram = mkEmptyArray 0x80
+        , _hram = mkEmptyMemory 0x80
         , _io = ioInitialValues
-        , _oam = mkEmptyArray 0x100
-        , _wram = mkEmptyArray 0x2000
-        , _sram = mkEmptyArray 0x2000
-        , _vram = mkEmptyArray 0x2000
-        , _cartridge = mkEmptyArray 0x8000
+        , _oam = mkEmptyMemory 0x100
+        , _wram = mkEmptyMemory 0x2000
+        , _sram = mkEmptyMemory 0x2000
+        , _vram = mkEmptyMemory 0x2000
+        , _cartridge = mkEmptyMemory 0x8000
         }
 
-mkEmptyArray :: U16 -> Array U16 U8
-mkEmptyArray len =
-    Array.listArray (0, len - 1) $
-        replicate (fromIntegral len) 0
+mkEmptyMemory :: U16 -> Memory
+mkEmptyMemory len =
+    Vector.replicate (fromIntegral len) 0
 
 initializeMemoryBus :: FilePath -> IO MemoryBus
 initializeMemoryBus path = do
