@@ -56,7 +56,7 @@ targetL = \case
     H -> h
     L -> l
 
-data TargetRegister16 = BC | DE | HL | SP
+data TargetRegister16 = BC | DE | HL
     deriving stock (Show)
 
 target16L :: TargetRegister16 -> Lens' Registers U16
@@ -64,7 +64,6 @@ target16L = \case
     BC -> bc
     DE -> de
     HL -> hl
-    SP -> sp
 
 data FlagCondition = ZUnset | ZSet | CUnset | CSet
 
@@ -112,6 +111,7 @@ instance Show RestartAddr where
 -- instruction (but could nevertheless be used)
 data Instr
     = LD_u16 TargetRegister16 U16
+    | LD_SP_u16 U16
     | LD_A_derefDE
     | LD_A_FF00plusU8 U8
     | LD_A_HLplus
@@ -137,9 +137,11 @@ data Instr
     | INC TargetRegister
     | INC_derefHL
     | INC16 TargetRegister16
+    | INC_SP
     | DEC TargetRegister
     | DEC_derefHL
     | DEC16 TargetRegister16
+    | DEC_SP
     | CALL U16
     | CALL_cc FlagCondition U16
     | RET
@@ -178,6 +180,7 @@ data Instr
 instance Show Instr where
     show = \case
         LD_u16 rr n -> "LD " <> show rr <> "," <> toHex n
+        LD_SP_u16 n -> "LD SP," <> toHex n
         LD_derefHL_A -> "LD (HL),A"
         LD_r_HLderef r -> "LD " <> show r <> ",(HL)"
         LD_HLminus_A -> "LD (HL-),A"
@@ -203,9 +206,11 @@ instance Show Instr where
         INC r -> "INC " <> show r
         INC_derefHL -> "INC (HL)"
         INC16 r -> "INC " <> show r
+        INC_SP -> "INC SP"
         DEC r -> "DEC " <> show r
         DEC_derefHL -> "DEC (HL)"
         DEC16 r -> "DEC " <> show r
+        DEC_SP -> "DEC SP"
         CALL n -> "CALL " <> toHex n
         CALL_cc cond n -> "CALL " <> show cond <> "," <> toHex n
         RET -> "RET"
@@ -301,15 +306,15 @@ fetch = do
         0x2e -> LD_u8 L <$> fetchByteM
         0x2f -> pure CPL
         0x30 -> JR_cc CUnset <$> fetchI8M
-        0x31 -> LD_u16 SP <$> fetchU16M
+        0x31 -> LD_SP_u16 <$> fetchU16M
         0x32 -> pure LD_HLminus_A
-        0x33 -> pure $ INC16 SP
+        0x33 -> pure $ INC_SP
         0x34 -> pure INC_derefHL
         0x35 -> pure DEC_derefHL
         0x36 -> LD_HLderef_u8 <$> fetchByteM
         0x38 -> JR_cc CSet <$> fetchI8M
         0x3a -> pure LD_A_HLminus
-        0x3b -> pure $ DEC16 SP
+        0x3b -> pure DEC_SP
         0x3c -> pure $ INC A
         0x3d -> pure $ DEC A
         0x3e -> LD_u8 A <$> fetchByteM
@@ -627,8 +632,12 @@ ld_r_r r r' = do
 execute :: GameBoy m => Instr -> m Int
 execute = \case
     NOP -> pure 4
-    LD_u16 rr n ->
-        assign' (registers % target16L rr) n >> pure 12
+    LD_u16 rr n -> do
+        assign' (registers % target16L rr) n
+        pure 12
+    LD_SP_u16 n -> do
+        assign' (registers % sp) n
+        pure 12
     LD_r_HLderef r -> do
         s <- get
         let n = readByte (view memoryBus s) (s ^. registers % hl)
@@ -681,8 +690,9 @@ execute = \case
         modify' $ \s ->
             s & registers % a .~ readByte (view memoryBus s) n
         pure 16
-    LD_u8 r n ->
-        assign' (registers % targetL r) n >> pure 8
+    LD_u8 r n -> do
+        assign' (registers % targetL r) n
+        pure 8
     LD r r' ->
         ld_r_r r r'
     LD_u16_A n -> do
@@ -783,8 +793,9 @@ execute = \case
             push counter
             assign' programCounter n
         pure 24
-    JP n ->
-        assign' programCounter n >> pure 16
+    JP n -> do
+        assign' programCounter n
+        pure 16
     INC r ->
         inc (targetL r)
     INC_derefHL -> do
@@ -794,10 +805,20 @@ execute = \case
             val = readByte (view memoryBus s) addr + 1
         writeMemory addr val
         pure 12
-    INC16 r ->
-        modifying' (registers % (target16L r)) (+ 1) >> pure 8
+    INC16 r -> do
+        modifying' (registers % (target16L r)) (+ 1)
+        pure 8
+    INC_SP -> do
+        modifying' (registers % sp) (+ 1)
+        pure 8
     DEC r ->
         dec (targetL r)
+    DEC16 r -> do
+        modifying' (registers % (target16L r)) (\n -> n - 1)
+        pure 8
+    DEC_SP -> do
+        modifying' (registers % sp) (\n -> n - 1)
+        pure 8
     DEC_derefHL -> do
         s <- get
         let
@@ -811,8 +832,6 @@ execute = \case
                 . set (flag HalfCarry) ((val + 1) .&. 0x0f == 0)
             )
         pure 12
-    DEC16 r ->
-        modifying' (registers % (target16L r)) (\n -> n - 1) >> pure 8
     PUSH rr -> do
         n <- use (registers % target16L rr)
         push n
