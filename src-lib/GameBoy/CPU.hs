@@ -116,6 +116,7 @@ data Instr
     | LD_A_FF00plusU8 U8
     | LD_A_HLplus
     | LD_A_HLminus
+    | LD_A_derefU16 U16
     | LD_u8 TargetRegister U8
     | LD_FF00plusC_A
     | LD_FF00plusU8_A U8
@@ -143,6 +144,7 @@ data Instr
     | CALL_cc FlagCondition U16
     | RET
     | RET_cc FlagCondition
+    | RETI
     | PUSH TargetRegister16
     | PUSH_AF
     | POP TargetRegister16
@@ -152,17 +154,24 @@ data Instr
     | DI
     | EI
     | NOP
-    | CP_A_u8 U8
     | OR TargetRegister
+    | OR_u8 U8
     | AND TargetRegister
+    | AND_u8 U8
     | SUB TargetRegister
+    | SUB_u8 U8
     | ADD TargetRegister
+    | ADD_u8 U8
     | ADC TargetRegister
+    | ADC_u8 U8
     | SBC TargetRegister
+    | SBC_u8 U8
     | CP TargetRegister
+    | CP_u8 U8
     | XOR TargetRegister
-    | XOR_A_u8 U8
+    | XOR_u8 U8
     | RST RestartAddr
+    | CPL
 
 instance Show Instr where
     show = \case
@@ -176,6 +185,7 @@ instance Show Instr where
         LD_A_HLminus -> "LD A,(HL-)"
         LD_A_derefDE -> "LD A,(DE)"
         LD_A_FF00plusU8 n -> "LD A,($ff00+" <> toHex n <> ")"
+        LD_A_derefU16 n -> "LD A,(" <> toHex n <> ")"
         LD r r' -> "LD " <> show r <> "," <> show r'
         LD_u8 r n -> "LD " <> show r <> "," <> toHex n
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
@@ -188,7 +198,6 @@ instance Show Instr where
         JP_cc cond n -> "JP " <> show cond <> "," <> toHex n
         JR_cc cond n -> "JR " <> show cond <> "," <> show n
         JR n -> "JR " <> show n
-        XOR_A_u8 n -> "XOR A," <> toHex n
         INC r -> "INC " <> show r
         INC_derefHL -> "INC (HL)"
         INC16 r -> "INC " <> show r
@@ -199,6 +208,7 @@ instance Show Instr where
         CALL_cc cond n -> "CALL " <> show cond <> "," <> toHex n
         RET -> "RET"
         RET_cc cond -> "RET " <> show cond
+        RETI -> "RETI"
         PUSH rr -> "PUSH " <> show rr
         PUSH_AF -> "PUSH AF"
         POP rr -> "POP " <> show rr
@@ -208,16 +218,24 @@ instance Show Instr where
         DI -> "DI"
         EI -> "EI"
         NOP -> "NOP"
-        CP_A_u8 n -> "CP A," <> toHex n
         OR r -> "OR A," <> show r
+        OR_u8 n -> "OR A," <> toHex n
         AND r -> "AND A," <> show r
+        AND_u8 n -> "AND A," <> toHex n
         SUB r -> "SUB A," <> show r
+        SUB_u8 n -> "SUB A," <> toHex n
         ADD r -> "ADD A," <> show r
+        ADD_u8 n -> "ADD A," <> toHex n
         ADC r -> "ADC A," <> show r
+        ADC_u8 n -> "ADC A," <> toHex n
         SBC r -> " A," <> show r
+        SBC_u8 n -> "SBC A," <> toHex n
         XOR r -> "XOR A," <> show r
+        XOR_u8 n -> "XOR A," <> toHex n
         CP r -> "CP A," <> show r
+        CP_u8 n -> "CP A," <> toHex n
         RST addr -> "RST " <> show addr
+        CPL -> "CPL"
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -277,6 +295,7 @@ fetch = do
         0x2c -> pure $ INC L
         0x2d -> pure $ DEC L
         0x2e -> LD_u8 L <$> fetchByteM
+        0x2f -> pure CPL
         0x30 -> JR_cc CUnset <$> fetchI8M
         0x31 -> LD_u16 SP <$> fetchU16M
         0x32 -> pure LD_HLminus_A
@@ -409,6 +428,7 @@ fetch = do
         0xc3 -> JP <$> fetchU16M
         0xc4 -> CALL_cc ZUnset <$> fetchU16M
         0xc5 -> pure $ PUSH BC
+        0xc6 -> ADD_u8 <$> fetchByteM
         0xc7 -> pure $ RST Rst00
         0xc8 -> pure $ RET_cc ZSet
         0xc9 -> pure RET
@@ -416,33 +436,40 @@ fetch = do
         0xcb -> fetchPrefixed bus
         0xcc -> CALL_cc ZSet <$> fetchU16M
         0xcd -> CALL <$> fetchU16M
+        0xce -> ADC_u8 <$> fetchByteM
         0xcf -> pure $ RST Rst08
         0xd0 -> pure $ RET_cc CUnset
         0xd1 -> pure $ POP DE
         0xd2 -> JP_cc CUnset <$> fetchU16M
         0xd4 -> CALL_cc CUnset <$> fetchU16M
         0xd5 -> pure $ PUSH DE
+        0xd6 -> SUB_u8 <$> fetchByteM
         0xd7 -> pure $ RST Rst10
         0xd8 -> pure $ RET_cc CSet
+        0xd9 -> pure RETI
         0xda -> JP_cc CSet <$> fetchU16M
         0xdc -> CALL_cc CSet <$> fetchU16M
+        0xde -> SBC_u8 <$> fetchByteM
         0xdf -> pure $ RST Rst18
         0xe0 -> LD_FF00plusU8_A <$> fetchByteM
         0xe2 -> pure LD_FF00plusC_A
         0xe1 -> pure $ POP HL
         0xe5 -> pure $ PUSH HL
+        0xe6 -> AND_u8 <$> fetchByteM
         0xe7 -> pure $ RST Rst20
         0xea -> LD_u16_A <$> fetchU16M
-        0xee -> XOR_A_u8 <$> fetchByteM
+        0xee -> XOR_u8 <$> fetchByteM
         0xef -> pure $ RST Rst28
         0xf0 -> LD_A_FF00plusU8 <$> fetchByteM
         0xf1 -> pure POP_AF
         0xf3 -> pure DI
         0xf5 -> pure PUSH_AF
+        0xf6 -> OR_u8 <$> fetchByteM
         0xf7 -> pure $ RST Rst30
         0xf8 -> LD_HL_SP <$> fetchI8M
+        0xfa -> LD_A_derefU16 <$> fetchU16M
         0xfb -> pure EI
-        0xfe -> CP_A_u8 <$> fetchByteM
+        0xfe -> CP_u8 <$> fetchByteM
         0xff -> pure $ RST Rst38
         unknown -> error $ "unknown opcode: " <> toHex unknown
 
@@ -585,16 +612,6 @@ ld_r_r r r' = do
 execute :: GameBoy m => Instr -> m Int
 execute = \case
     NOP -> pure 4
-    XOR_A_u8 n -> do
-        modifying'
-            registers
-            ( \rs ->
-                let res = view a rs `Bits.xor` n
-                in rs
-                    & flag Zero .~ (res == 0)
-                    & a .~ res
-            )
-        pure 8
     LD_u16 rr n ->
         assign' (registers % target16L rr) n >> pure 12
     LD_r_HLderef r -> do
@@ -645,6 +662,10 @@ execute = \case
         modify' $ \s ->
             s & registers % a .~ readByte (view memoryBus s) (0xff00 + fromIntegral n)
         pure 12
+    LD_A_derefU16 n -> do
+        modify' $ \s ->
+            s & registers % a .~ readByte (view memoryBus s) n
+        pure 16
     LD_u8 r n ->
         assign' (registers % targetL r) n >> pure 8
     LD r r' ->
@@ -729,6 +750,11 @@ execute = \case
         when (checkFlagCondition cond s) $ do
             addr <- pop
             assign' programCounter addr
+        pure 16
+    RETI -> do
+        addr <- pop
+        assign' programCounter addr
+        assign' masterInterruptEnable True
         pure 16
     CALL n -> do
         counter <- use programCounter
@@ -820,7 +846,101 @@ execute = \case
         assign' masterInterruptEnable False >> pure 4
     EI ->
         assign' masterInterruptEnable True >> pure 4
-    CP_A_u8 n -> do
+    -- TODO: refactor these with the _u8 variants into using the same
+    -- implementations
+    OR r -> or_a r
+    OR_u8 n -> do
+        modifying' registers $ \rs ->
+            let res = rs ^. a .|. n
+            in rs
+                & set a res
+                    . clearFlag Negative
+                    . clearFlag Carry
+                    . clearFlag HalfCarry
+                    . set (flag Zero) (res == 0)
+        pure 8
+    AND r -> and_a r
+    AND_u8 n -> do
+        modifying' registers $ \rs ->
+            let res = rs ^. a .&. n
+            in rs
+                & set a res
+                    . clearFlag Negative
+                    . clearFlag Carry
+                    . setFlag HalfCarry
+                    . set (flag Zero) (res == 0)
+        pure 8
+    ADD r -> add_a r
+    ADD_u8 n -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. a
+                res' = fromIntegral @_ @U16 orig + fromIntegral n
+                res = fromIntegral res'
+                needsHalfCarry = (orig .&. 0x0f) + (n .&. 0x0f) > 0x0f
+                needsCarry = res' > 0xff
+            in
+                rs
+                    & set a res
+                        . clearFlag Negative
+                        . set (flag Carry) needsCarry
+                        . set (flag HalfCarry) needsHalfCarry
+                        . set (flag Zero) (res == 0)
+        pure 8
+    SUB r -> sub_a r
+    SUB_u8 n -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. a
+                res = rs ^. a - n
+                needsHalfCarry = orig .&. 0x0f < n .&. 0x0f
+            in
+                rs
+                    & set a res
+                        . clearFlag Negative
+                        . set (flag Carry) (orig < n)
+                        . set (flag HalfCarry) needsHalfCarry
+                        . set (flag Zero) (res == 0)
+        pure 8
+    ADC r -> adc_a r
+    ADC_u8 n -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. a
+                carry = if rs ^. flag Carry then 1 else 0
+                res' = fromIntegral @_ @U16 orig + fromIntegral n + fromIntegral carry
+                needsCarry = res' > 0xff
+                res = fromIntegral res'
+                needsHalfCarry = (orig .&. 0x0f) + (n .&. 0x0f) + carry > 0x0f
+            in
+                rs
+                    & set a res
+                        . clearFlag Negative
+                        . set (flag Carry) needsCarry
+                        . set (flag HalfCarry) needsHalfCarry
+                        . set (flag Zero) (res == 0)
+        pure 8
+    SBC r -> sbc_a r
+    SBC_u8 n -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. a
+                carry = if rs ^. flag Carry then 1 else 0
+                -- FIXME: check if this correct in case the carry bit overflows
+                -- val
+                val = n + carry
+                res = rs ^. a - val
+                needsHalfCarry = orig .&. 0x0f < val .&. 0x0f
+            in
+                rs
+                    & set a res
+                        . clearFlag Negative
+                        . set (flag Carry) (orig < val)
+                        . set (flag HalfCarry) needsHalfCarry
+                        . set (flag Zero) (res == 0)
+        pure 8
+    CP r -> cp_a r
+    CP_u8 n -> do
         modify' $ \s ->
             let
                 orig = s ^. registers % a
@@ -834,19 +954,32 @@ execute = \case
                         . set (flag HalfCarry) needsHalfCarry
                         . set (flag Carry) (orig < n)
         pure 8
-    OR r -> or_a r
-    AND r -> and_a r
-    ADD r -> add_a r
-    SUB r -> sub_a r
-    ADC r -> adc_a r
-    SBC r -> sbc_a r
-    CP r -> cp_a r
     XOR r -> xor_a r
+    XOR_u8 n -> do
+        modifying'
+            registers
+            ( \rs ->
+                let res = view a rs `Bits.xor` n
+                in rs
+                    & flag Zero .~ (res == 0)
+                    & clearFlag Negative
+                    & clearFlag HalfCarry
+                    & clearFlag Carry
+                    & a .~ res
+            )
+        pure 8
     RST addr -> do
         counter <- use programCounter
         push counter
         assign' programCounter (getRestartAddr addr)
         pure 16
+    CPL -> do
+        modifying' registers $ \rs ->
+            rs
+                & a %~ Bits.complement
+                & setFlag Negative
+                & setFlag HalfCarry
+        pure 4
 
 or_a :: GameBoy m => TargetRegister -> m Int
 or_a r = do
