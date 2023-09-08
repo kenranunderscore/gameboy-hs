@@ -132,6 +132,7 @@ data Instr
     | BIT Int TargetRegister
     | BIT_n_derefHL Int
     | JP U16
+    | JP_HL
     | JP_cc FlagCondition U16
     | JR_cc FlagCondition I8
     | JR I8
@@ -179,6 +180,8 @@ data Instr
     | SWAP_derefHL
     | ADD_HL TargetRegister16
     | ADD_HL_SP
+    | RES Int TargetRegister
+    | SET Int TargetRegister
 
 instance Show Instr where
     show = \case
@@ -203,6 +206,7 @@ instance Show Instr where
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
         JP n -> "JP " <> toHex n
+        JP_HL -> "JP HL"
         JP_cc cond n -> "JP " <> show cond <> "," <> toHex n
         JR_cc cond n -> "JR " <> show cond <> "," <> show n
         JR n -> "JR " <> show n
@@ -250,6 +254,8 @@ instance Show Instr where
         SWAP_derefHL -> "SWAP (HL)"
         ADD_HL rr -> "ADD HL," <> show rr
         ADD_HL_SP -> "ADD HL,SP"
+        RES n r -> "RES " <> show n <> "," <> show r
+        SET n r -> "SET " <> show n <> "," <> show r
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -475,6 +481,7 @@ fetch = do
         0xe5 -> pure $ PUSH HL
         0xe6 -> AND_u8 <$> fetchByteM
         0xe7 -> pure $ RST Rst20
+        0xe9 -> pure JP_HL
         0xea -> LD_u16_A <$> fetchU16M
         0xee -> XOR_u8 <$> fetchByteM
         0xef -> pure $ RST Rst28
@@ -564,6 +571,118 @@ fetchPrefixed = do
         0x7d -> BIT 7 L
         0x7e -> BIT_n_derefHL 7
         0x7f -> BIT 7 A
+        0x80 -> RES 0 B
+        0x81 -> RES 0 C
+        0x82 -> RES 0 D
+        0x83 -> RES 0 E
+        0x84 -> RES 0 H
+        0x85 -> RES 0 L
+        0x87 -> RES 0 A
+        0x88 -> RES 1 B
+        0x89 -> RES 1 C
+        0x8a -> RES 1 D
+        0x8b -> RES 1 E
+        0x8c -> RES 1 H
+        0x8d -> RES 1 L
+        0x8f -> RES 1 A
+        0x90 -> RES 2 B
+        0x91 -> RES 2 C
+        0x92 -> RES 2 D
+        0x93 -> RES 2 E
+        0x94 -> RES 2 H
+        0x95 -> RES 2 L
+        0x97 -> RES 2 A
+        0x98 -> RES 3 B
+        0x99 -> RES 3 C
+        0x9a -> RES 3 D
+        0x9b -> RES 3 E
+        0x9c -> RES 3 H
+        0x9d -> RES 3 L
+        0x9f -> RES 3 A
+        0xa0 -> RES 4 B
+        0xa1 -> RES 4 C
+        0xa2 -> RES 4 D
+        0xa3 -> RES 4 E
+        0xa4 -> RES 4 H
+        0xa5 -> RES 4 L
+        0xa7 -> RES 4 A
+        0xa8 -> RES 5 B
+        0xa9 -> RES 5 C
+        0xaa -> RES 5 D
+        0xab -> RES 5 E
+        0xac -> RES 5 H
+        0xad -> RES 5 L
+        0xaf -> RES 5 A
+        0xb0 -> RES 6 B
+        0xb1 -> RES 6 C
+        0xb2 -> RES 6 D
+        0xb3 -> RES 6 E
+        0xb4 -> RES 6 H
+        0xb5 -> RES 6 L
+        0xb7 -> RES 6 A
+        0xb8 -> RES 7 B
+        0xb9 -> RES 7 C
+        0xba -> RES 7 D
+        0xbb -> RES 7 E
+        0xbc -> RES 7 H
+        0xbd -> RES 7 L
+        0xbf -> RES 7 A
+        0xc0 -> SET 0 B
+        0xc1 -> SET 0 C
+        0xc2 -> SET 0 D
+        0xc3 -> SET 0 E
+        0xc4 -> SET 0 H
+        0xc5 -> SET 0 L
+        0xc7 -> SET 0 A
+        0xc8 -> SET 1 B
+        0xc9 -> SET 1 C
+        0xca -> SET 1 D
+        0xcb -> SET 1 E
+        0xcc -> SET 1 H
+        0xcd -> SET 1 L
+        0xcf -> SET 1 A
+        0xd0 -> SET 2 B
+        0xd1 -> SET 2 C
+        0xd2 -> SET 2 D
+        0xd3 -> SET 2 E
+        0xd4 -> SET 2 H
+        0xd5 -> SET 2 L
+        0xd7 -> SET 2 A
+        0xd8 -> SET 3 B
+        0xd9 -> SET 3 C
+        0xda -> SET 3 D
+        0xdb -> SET 3 E
+        0xdc -> SET 3 H
+        0xdd -> SET 3 L
+        0xdf -> SET 3 A
+        0xe0 -> SET 4 B
+        0xe1 -> SET 4 C
+        0xe2 -> SET 4 D
+        0xe3 -> SET 4 E
+        0xe4 -> SET 4 H
+        0xe5 -> SET 4 L
+        0xe7 -> SET 4 A
+        0xe8 -> SET 5 B
+        0xe9 -> SET 5 C
+        0xea -> SET 5 D
+        0xeb -> SET 5 E
+        0xec -> SET 5 H
+        0xed -> SET 5 L
+        0xef -> SET 5 A
+        0xf0 -> SET 6 B
+        0xf1 -> SET 6 C
+        0xf2 -> SET 6 D
+        0xf3 -> SET 6 E
+        0xf4 -> SET 6 H
+        0xf5 -> SET 6 L
+        0xf7 -> SET 6 A
+        0xf8 -> SET 7 B
+        0xf9 -> SET 7 C
+        0xfa -> SET 7 D
+        0xfb -> SET 7 E
+        0xfc -> SET 7 H
+        0xfd -> SET 7 L
+        0xff -> SET 7 A
         n -> error $ "unknown prefixed byte: " <> toHex n
 
 writeMemory :: GameBoy m => U16 -> U8 -> m ()
@@ -805,6 +924,10 @@ execute = \case
     JP n -> do
         assign' programCounter n
         pure 16
+    JP_HL -> do
+        modifying' registers $ \rs ->
+            rs & pc .~ view hl rs
+        pure 4
     INC r ->
         inc (targetL r)
     INC_derefHL -> do
@@ -1052,6 +1175,12 @@ execute = \case
                 . set (flag Zero) (orig == 0)
             )
         pure 16
+    RES n r -> do
+        modifying (registers % targetL r) (`Bits.clearBit` n)
+        pure 8
+    SET n r -> do
+        modifying (registers % targetL r) (`Bits.setBit` n)
+        pure 8
 
 add_hl :: GameBoy m => Lens' Registers U16 -> m Int
 add_hl rr = do
