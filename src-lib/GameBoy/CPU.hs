@@ -185,7 +185,7 @@ instance Show Instr where
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
         JP n -> "JP " <> toHex n
-        JP_cc cond n -> "JP " <> show cond <> "," <> show n
+        JP_cc cond n -> "JP " <> show cond <> "," <> toHex n
         JR_cc cond n -> "JR " <> show cond <> "," <> show n
         JR n -> "JR " <> show n
         XOR_A_u8 n -> "XOR A," <> toHex n
