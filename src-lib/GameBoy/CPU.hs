@@ -433,7 +433,7 @@ fetch = do
         0xc8 -> pure $ RET_cc ZSet
         0xc9 -> pure RET
         0xca -> JP_cc ZSet <$> fetchU16M
-        0xcb -> fetchPrefixed bus
+        0xcb -> fetchPrefixed
         0xcc -> CALL_cc ZSet <$> fetchU16M
         0xcd -> CALL <$> fetchU16M
         0xce -> ADC_u8 <$> fetchByteM
@@ -473,11 +473,14 @@ fetch = do
         0xff -> pure $ RST Rst38
         unknown -> error $ "unknown opcode: " <> toHex unknown
 
-fetchPrefixed :: GameBoy m => MemoryBus -> m Instr
-fetchPrefixed bus = do
-    n <- readU16 bus <$> use programCounter
+fetchPrefixed :: GameBoy m => m Instr
+fetchPrefixed = do
+    s <- get
+    let
+        counter = view programCounter s
+        bus = view memoryBus s
     advance 1
-    case n of
+    case readByte bus counter of
         0x11 -> pure RL_C
         0x48 -> pure $ BIT 1 B
         0x49 -> pure $ BIT 1 C
@@ -535,7 +538,7 @@ fetchPrefixed bus = do
         0x7d -> pure $ BIT 7 L
         0x7e -> pure $ BIT_n_derefHL 7
         0x7f -> pure $ BIT 7 A
-        s -> error $ "unknown prefixed byte: " <> toHex s
+        n -> error $ "unknown prefixed byte: " <> toHex n
 
 writeMemory :: GameBoy m => U16 -> U8 -> m ()
 writeMemory addr n =
