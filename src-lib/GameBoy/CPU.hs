@@ -732,14 +732,14 @@ execute = \case
         pure 16
     CALL n -> do
         counter <- use programCounter
-        push (counter + 1)
+        push counter
         assign' programCounter n
         pure 24
     CALL_cc cond n -> do
         s <- get
         when (checkFlagCondition cond s) $ do
             let counter = view programCounter s
-            push (counter + 1)
+            push counter
             assign' programCounter n
         pure 24
     JP n ->

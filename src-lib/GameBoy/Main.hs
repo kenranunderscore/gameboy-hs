@@ -9,6 +9,7 @@ import Data.IORef
 import Optics
 import System.Environment qualified as Environment
 
+import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
 import GameBoy.PPU
@@ -26,10 +27,10 @@ mainLoop scrRef = forever $ do
     liftIO $ writeIORef scrRef scr
   where
     oneFrame n = when (n < maxCyclesPerFrame) $ do
-        counter <- use programCounter
+        s <- get
         instr <- fetch
         cycles <- execute instr
-        liftIO $ putStrLn $ toHex counter <> " :  " <> show instr
+        liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
         void $ updateTimers cycles
         void $ updateGraphics cycles
         void $ handleInterrupts
