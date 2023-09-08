@@ -172,6 +172,8 @@ data Instr
     | XOR_u8 U8
     | RST RestartAddr
     | CPL
+    | SWAP TargetRegister
+    | SWAP_derefHL
 
 instance Show Instr where
     show = \case
@@ -236,6 +238,8 @@ instance Show Instr where
         CP_u8 n -> "CP A," <> toHex n
         RST addr -> "RST " <> show addr
         CPL -> "CPL"
+        SWAP r -> "SWAP " <> show r
+        SWAP_derefHL -> "SWAP (HL)"
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -482,6 +486,14 @@ fetchPrefixed = do
     advance 1
     case readByte bus counter of
         0x11 -> pure RL_C
+        0x30 -> pure $ SWAP B
+        0x31 -> pure $ SWAP C
+        0x32 -> pure $ SWAP D
+        0x33 -> pure $ SWAP E
+        0x34 -> pure $ SWAP H
+        0x35 -> pure $ SWAP L
+        0x36 -> pure SWAP_derefHL
+        0x37 -> pure $ SWAP A
         0x48 -> pure $ BIT 1 B
         0x49 -> pure $ BIT 1 C
         0x4a -> pure $ BIT 1 D
@@ -983,6 +995,31 @@ execute = \case
                 & setFlag Negative
                 & setFlag HalfCarry
         pure 4
+    SWAP r -> do
+        modifying' registers $ \rs ->
+            let orig = view (targetL r) rs
+            in rs
+                & targetL r %~ (`Bits.rotate` 4)
+                & clearFlag Negative
+                & clearFlag HalfCarry
+                & clearFlag Carry
+                & set (flag Zero) (orig == 0)
+        pure 8
+    SWAP_derefHL -> do
+        s <- get
+        let
+            rs = s ^. registers
+            addr = rs ^. hl
+            orig = readByte (view memoryBus s) addr
+        writeMemory addr (Bits.rotate orig 4)
+        modifying'
+            registers
+            ( clearFlag Negative
+                . clearFlag HalfCarry
+                . clearFlag Carry
+                . set (flag Zero) (orig == 0)
+            )
+        pure 16
 
 or_a :: GameBoy m => TargetRegister -> m Int
 or_a r = do
