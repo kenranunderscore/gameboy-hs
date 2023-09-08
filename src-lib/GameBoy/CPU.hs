@@ -10,6 +10,7 @@ import Control.Monad
 import Control.Monad.State.Strict
 import Data.Bits ((.&.), (.|.))
 import Data.Bits qualified as Bits
+import Data.Word (Word32)
 import Debug.Trace
 import Optics
 
@@ -176,6 +177,8 @@ data Instr
     | CPL
     | SWAP TargetRegister
     | SWAP_derefHL
+    | ADD_HL TargetRegister16
+    | ADD_HL_SP
 
 instance Show Instr where
     show = \case
@@ -245,6 +248,8 @@ instance Show Instr where
         CPL -> "CPL"
         SWAP r -> "SWAP " <> show r
         SWAP_derefHL -> "SWAP (HL)"
+        ADD_HL rr -> "ADD HL," <> show rr
+        ADD_HL_SP -> "ADD HL,SP"
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -276,6 +281,7 @@ fetch = do
         0x04 -> pure $ INC B
         0x05 -> pure $ DEC B
         0x06 -> LD_u8 B <$> fetchByteM
+        0x09 -> pure $ ADD_HL BC
         0x0b -> pure $ DEC16 BC
         0x0c -> pure $ INC C
         0x0d -> pure $ DEC C
@@ -286,6 +292,7 @@ fetch = do
         0x15 -> pure $ DEC D
         0x16 -> LD_u8 D <$> fetchByteM
         0x17 -> pure RLA
+        0x19 -> pure $ ADD_HL DE
         0x1a -> pure LD_A_derefDE
         0x1b -> pure $ DEC16 DE
         0x1c -> pure $ INC E
@@ -299,6 +306,7 @@ fetch = do
         0x25 -> pure $ DEC H
         0x26 -> LD_u8 H <$> fetchByteM
         0x28 -> JR_cc ZSet <$> fetchI8M
+        0x29 -> pure $ ADD_HL HL
         0x2a -> pure LD_A_HLplus
         0x2b -> pure $ DEC16 HL
         0x2c -> pure $ INC L
@@ -313,6 +321,7 @@ fetch = do
         0x35 -> pure DEC_derefHL
         0x36 -> LD_HLderef_u8 <$> fetchByteM
         0x38 -> JR_cc CSet <$> fetchI8M
+        0x39 -> pure ADD_HL_SP
         0x3a -> pure LD_A_HLminus
         0x3b -> pure DEC_SP
         0x3c -> pure $ INC A
@@ -921,6 +930,10 @@ execute = \case
                         . set (flag HalfCarry) needsHalfCarry
                         . set (flag Zero) (res == 0)
         pure 8
+    ADD_HL rr ->
+        add_hl (target16L rr)
+    ADD_HL_SP ->
+        add_hl sp
     SUB r -> sub_a r
     SUB_u8 n -> do
         modifying' registers $ \rs ->
@@ -1039,6 +1052,24 @@ execute = \case
                 . set (flag Zero) (orig == 0)
             )
         pure 16
+
+add_hl :: GameBoy m => Lens' Registers U16 -> m Int
+add_hl rr = do
+    modifying registers $ \rs ->
+        let
+            orig = view hl rs
+            val = view rr rs
+            res' = fromIntegral @_ @Word32 orig + fromIntegral val
+            res = fromIntegral res'
+            needsCarry = res' > 0xffff
+            needsHalfCarry = orig .&. 0x0fff + val .&. 0x0fff > 0x0fff
+        in
+            rs
+                & hl .~ res
+                & clearFlag Negative
+                & set (flag HalfCarry) needsHalfCarry
+                & set (flag Carry) needsCarry
+    pure 8
 
 or_a :: GameBoy m => TargetRegister -> m Int
 or_a r = do
