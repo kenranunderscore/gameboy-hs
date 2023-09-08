@@ -66,6 +66,11 @@ instance Show Registers where
 
 type InMemoryScreen = Vector (Vector U8)
 
+emptyScreen :: InMemoryScreen
+emptyScreen = Vector.replicate 144 emptyLine
+  where
+    emptyLine = Vector.replicate 160 0
+
 data CPUState = CPUState
     { _registers :: Registers
     , _memoryBus :: MemoryBus
@@ -88,8 +93,6 @@ stackPointer = registers % sp
 mkInitialState :: MemoryBus -> CPUState
 mkInitialState bus = CPUState initialRegisters bus 0 1024 True 456 emptyScreen
   where
-    emptyLine = Vector.replicate 160 0
-    emptyScreen = Vector.replicate 144 emptyLine
     initialRegisters =
         Registers
             { _a = 0

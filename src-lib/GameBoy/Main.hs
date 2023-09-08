@@ -3,36 +3,33 @@
 module GameBoy.Main (main) where
 
 import Control.Concurrent.Async qualified as Async
-import Control.Exception qualified as Exception
 import Control.Monad
 import Control.Monad.State.Strict
+import Data.IORef
 import Optics
-import SDL (($=))
-import SDL qualified
 import System.Environment qualified as Environment
 
 import GameBoy.CPU
 import GameBoy.Memory
 import GameBoy.PPU
+import GameBoy.Render qualified as Render
 import GameBoy.State
 
 maxCyclesPerFrame :: Int
 maxCyclesPerFrame = 69_905
 
-mainLoop :: (MonadIO m, GameBoy m) => m ()
-mainLoop = forever $ do
+mainLoop :: (MonadIO m, GameBoy m) => IORef InMemoryScreen -> m ()
+mainLoop scrRef = forever $ do
     oneFrame 0
     liftIO $ putStrLn "    [FRAME FINISHED]"
-    renderScreen
+    scr <- use screen
+    liftIO $ writeIORef scrRef scr
   where
-    renderScreen = do
-        scr <- use screen
-        liftIO $ putStrLn (showScreen scr)
     oneFrame n = when (n < maxCyclesPerFrame) $ do
-        s <- get
+        counter <- use programCounter
         instr <- fetch
         cycles <- execute instr
-        -- liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+        liftIO $ putStrLn $ toHex counter <> " :  " <> show instr
         void $ updateTimers cycles
         void $ updateGraphics cycles
         void $ handleInterrupts
@@ -44,58 +41,9 @@ main = do
     case args of
         [] -> fail "need path to ROM as first argument"
         (cartridgePath : _) -> do
-            graphics <- Async.async $ runGraphics
+            scrRef <- newIORef emptyScreen
+            graphics <- Async.asyncBound $ Render.runGraphics scrRef
             game <- Async.async $ do
                 bus <- initializeMemoryBus cartridgePath
-                _finalRegisters <- execStateT mainLoop (mkInitialState bus)
-                pure ()
+                void $ execStateT (mainLoop scrRef) (mkInitialState bus)
             void $ Async.waitAnyCancel [graphics, game]
-
-runGraphics :: IO ()
-runGraphics = do
-    withSdl $ withSdlWindow $ \w ->
-        withSdlRenderer w $ \renderer -> do
-            SDL.rendererDrawColor renderer $= SDL.V4 0 0 255 255
-            void $ appLoop renderer
-  where
-    escPressed evt =
-        case SDL.eventPayload evt of
-            SDL.KeyboardEvent keyboardEvent ->
-                SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed
-                    && SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) == SDL.KeycodeEscape
-            _ -> False
-    appLoop renderer = do
-        evts <- SDL.pollEvents
-        SDL.clear renderer
-        SDL.present renderer
-        unless (any escPressed evts) (appLoop renderer)
-
-withSdl :: IO a -> IO a
-withSdl =
-    Exception.bracket_
-        ( do
-            SDL.initialize [SDL.InitVideo]
-            putStrLn "SDL initialized"
-        )
-        ( do
-            SDL.quit
-            putStrLn "Shut down SDL"
-        )
-
-withSdlWindow :: (SDL.Window -> IO a) -> IO a
-withSdlWindow =
-    Exception.bracket
-        (SDL.createWindow "GameBoy emulator" SDL.defaultWindow)
-        ( \w -> do
-            SDL.destroyWindow w
-            putStrLn "Window destroyed"
-        )
-
-withSdlRenderer :: SDL.Window -> (SDL.Renderer -> IO a) -> IO a
-withSdlRenderer window =
-    Exception.bracket
-        (SDL.createRenderer window (-1) SDL.defaultRenderer)
-        ( \r -> do
-            SDL.destroyRenderer r
-            putStrLn "Renderer destroyed"
-        )
