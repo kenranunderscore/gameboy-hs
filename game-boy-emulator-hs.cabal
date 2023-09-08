@@ -45,6 +45,7 @@ executable game-boy-emulator-hs
 
   hs-source-dirs:   src-exe
   default-language: GHC2021
+  ghc-options:      -rtsopts -with-rtsopts=-N
 
 test-suite game-boy-emulator-hs-test
   import:           warnings
