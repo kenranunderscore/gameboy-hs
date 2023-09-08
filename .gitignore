@@ -1,1 +1,3 @@
+*.hp
+*.prof
 dist-newstyle/
