@@ -122,7 +122,7 @@ data Instr
     | LD_FF00plusC_A
     | LD_FF00plusU8_A U8
     | LD_u16_A U16
-    | LD_derefHL_A
+    | LD_deref_rr_A TargetRegister16
     | LD_HLminus_A
     | LD_HLplus_A
     | LD_HLderef_u8 U8
@@ -187,7 +187,7 @@ instance Show Instr where
     show = \case
         LD_u16 rr n -> "LD " <> show rr <> "," <> toHex n
         LD_SP_u16 n -> "LD SP," <> toHex n
-        LD_derefHL_A -> "LD (HL),A"
+        LD_deref_rr_A rr -> "LD (" <> show rr <> "),A"
         LD_r_HLderef r -> "LD " <> show r <> ",(HL)"
         LD_HLminus_A -> "LD (HL-),A"
         LD_HLderef_u8 n -> "LD (HL)," <> toHex n
@@ -283,6 +283,7 @@ fetch = do
     case readByte bus counter of
         0 -> pure NOP
         0x01 -> LD_u16 BC <$> fetchU16M
+        0x02 -> pure $ LD_deref_rr_A BC
         0x03 -> pure $ INC16 BC
         0x04 -> pure $ INC B
         0x05 -> pure $ DEC B
@@ -293,11 +294,13 @@ fetch = do
         0x0d -> pure $ DEC C
         0x0e -> LD_u8 C <$> fetchByteM
         0x11 -> LD_u16 DE <$> fetchU16M
+        0x12 -> pure $ LD_deref_rr_A DE
         0x13 -> pure $ INC16 DE
         0x14 -> pure $ INC D
         0x15 -> pure $ DEC D
         0x16 -> LD_u8 D <$> fetchByteM
         0x17 -> pure RLA
+        0x18 -> JR <$> fetchI8M
         0x19 -> pure $ ADD_HL DE
         0x1a -> pure LD_A_derefDE
         0x1b -> pure $ DEC16 DE
@@ -381,7 +384,7 @@ fetch = do
         0x6d -> pure $ LD L L
         0x6e -> pure $ LD_r_HLderef L
         0x6f -> pure $ LD L A
-        0x77 -> pure LD_derefHL_A
+        0x77 -> pure $ LD_deref_rr_A HL
         0x78 -> pure $ LD A B
         0x79 -> pure $ LD A C
         0x7a -> pure $ LD A D
@@ -836,9 +839,9 @@ execute = \case
         s <- get
         writeMemory (0xff00 + fromIntegral n) (s ^. registers % a)
         pure 12
-    LD_derefHL_A -> do
+    LD_deref_rr_A rr -> do
         s <- get
-        writeMemory (s ^. registers % hl) (s ^. registers % a)
+        writeMemory (s ^. registers % target16L rr) (s ^. registers % a)
         pure 8
     LD_HL_SP n -> do
         modifying' registers $ \rs ->
