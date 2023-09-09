@@ -132,12 +132,12 @@ readScanlineColors bus =
         y = bus ^. viewportY
         x = bus ^. viewportX
         wy = bus ^. windowY
-        wx = bus ^. windowX
+        wx = bus ^. windowX - 7
         mode = bus ^. addressingMode
-        useWindow = view displayWindow bus && wy <= view scanline bus
-        tileMapStart = determineTileMapAddr useWindow
         currentLine = bus ^. scanline
-        ypos = if useWindow then currentLine - wy else currentLine + y -- TODO understand -wy
+        useWindow = view displayWindow bus && wy <= currentLine
+        tileMapStart = determineTileMapAddr useWindow
+        ypos = if useWindow then currentLine - wy else currentLine + y
         vertTileIndexOffset = (ypos .>>. 3) .<<. 5
     in
         -- TODO: "preload" only the necessary tiles, _then_ loop
@@ -145,13 +145,12 @@ readScanlineColors bus =
             fmap
                 ( \i ->
                     let
-                        xpos = x + i
+                        xpos = if useWindow && i >= wx then i - wx else x + i
                         horTileIndex = xpos .>>. 3
                         tileIdentifierAddr = tileMapStart + fromIntegral vertTileIndexOffset + fromIntegral horTileIndex
                         tileIdentifier = readByte bus tileIdentifierAddr
                         tileAddr = determineTileAddress tileIdentifier mode
                         rowIndex = ypos `mod` 8
-                        -- TODO: useWindow: different
                         tileColors = readTile bus tileAddr Vector.! fromIntegral rowIndex
                     in
                         tileColors Vector.! fromIntegral (xpos `mod` 8)
