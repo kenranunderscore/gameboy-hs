@@ -2,6 +2,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module GameBoy.PPU where

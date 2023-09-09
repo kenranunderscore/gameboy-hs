@@ -1,5 +1,9 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+-- FIXME: without strict, there's a huuuuge space leak; figure out a way to get
+-- rid of it without this extension
+{-# LANGUAGE Strict #-}
+{-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
