@@ -121,10 +121,17 @@ readTile bus addr =
 
 data ScanlineColors = ScanlineColors
     { _index :: Int
-    , _colors :: Vector Color
+    , _colors :: Vector U8
     }
 
 makeLenses ''ScanlineColors
+
+translateTileColors :: U8 -> Color -> U8
+translateTileColors palette = \case
+    Color0 -> palette .&. 0b11
+    Color1 -> (palette .>>. 2) .&. 0b11
+    Color2 -> (palette .>>. 4) .&. 0b11
+    Color3 -> (palette .>>. 6) .&. 0b11
 
 readScanlineColors :: MemoryBus -> ScanlineColors
 readScanlineColors bus =
@@ -139,6 +146,7 @@ readScanlineColors bus =
         tileMapStart = determineTileMapAddr useWindow
         ypos = if useWindow then currentLine - wy else currentLine + y
         vertTileIndexOffset = (ypos .>>. 3) .<<. 5
+        currentPalette = bus ^. bgPalette
     in
         -- TODO: "preload" only the necessary tiles, _then_ loop
         ScanlineColors (fromIntegral currentLine) $
@@ -153,7 +161,8 @@ readScanlineColors bus =
                         rowIndex = ypos `mod` 8
                         tileColors = readTile bus tileAddr Vector.! fromIntegral rowIndex
                     in
-                        tileColors Vector.! fromIntegral (xpos `mod` 8)
+                        translateTileColors currentPalette $!
+                            tileColors Vector.! fromIntegral (xpos `mod` 8)
                 )
                 [0 .. 159]
   where
@@ -216,11 +225,7 @@ updateGraphics cycles = do
                         modifying'
                             screen
                             ( Vector.//
-                                [
-                                    ( scanlineColors._index
-                                    , fmap (fromIntegral . fromEnum) scanlineColors._colors
-                                    )
-                                ]
+                                [(scanlineColors._index, scanlineColors._colors)]
                             )
                     | line == 144 ->
                         assign' (memoryBus % interruptFlags % bit 0) True

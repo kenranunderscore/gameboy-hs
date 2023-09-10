@@ -142,6 +142,9 @@ tma = io % byte 0x06
 tac :: Lens' MemoryBus U8
 tac = io % byte 0x07
 
+bgPalette :: Lens' MemoryBus U8
+bgPalette = io % byte 0x47
+
 timerEnable :: Lens' MemoryBus Bool
 timerEnable = tac % bit 2
 
