@@ -1,8 +1,5 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
--- FIXME: without strict, there's a huuuuge space leak; figure out a way to get
--- rid of it without this extension
-{-# LANGUAGE Strict #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
@@ -80,7 +77,7 @@ writeByte addr n bus
     | otherwise = error "the impossible happened"
   where
     writeTo dest offset =
-        bus & dest % byte (addr - offset) .~ n
+        bus & dest % byte (addr - offset) !~ n
 
 writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
 writeIO addr n bus =
