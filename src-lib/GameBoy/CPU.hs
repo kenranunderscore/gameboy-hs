@@ -718,7 +718,7 @@ pop :: GameBoy m => m U16
 pop = do
     -- TODO: do I have to zero the popped memory location?
     s <- get
-    put (s & registers % sp %~ (+ 2))
+    put (s & registers % sp %!~ (+ 2))
     pure $ readU16 (view memoryBus s) (view stackPointer s)
 
 dec :: GameBoy m => Lens' Registers U8 -> m Int
@@ -730,11 +730,11 @@ dec reg = do
         in
             s
                 & registers
-                    %~ ( set (flag Zero) (result == 0)
+                    %!~ ( set (flag Zero) (result == 0)
                             . setFlag Negative
                             . set (flag HalfCarry) (old .&. 0x0f == 0)
                             . set reg result
-                       )
+                        )
     pure 4
 
 inc :: GameBoy m => Lens' Registers U8 -> m Int
@@ -746,17 +746,17 @@ inc reg = do
         in
             s
                 & registers
-                    %~ ( set (flag Zero) (result == 0)
+                    %!~ ( set (flag Zero) (result == 0)
                             . clearFlag Negative
                             . set (flag HalfCarry) (old .&. 0x0f == 0x0f)
                             . set reg result
-                       )
+                        )
     pure 4
 
 ld_r_r :: GameBoy m => TargetRegister -> TargetRegister -> m Int
 ld_r_r r r' = do
     modify' $ \s ->
-        s & registers % (targetL r) .~ (s ^. registers % targetL r')
+        s & registers % (targetL r) !~ (s ^. registers % targetL r')
     pure 4
 
 -- TODOs:
@@ -800,8 +800,8 @@ execute = \case
             registers
             ( \rs ->
                 rs
-                    & a .~ readByte (view memoryBus s) (rs ^. hl)
-                    & hl %~ (+ 1)
+                    & a !~ readByte (view memoryBus s) (rs ^. hl)
+                    & hl %!~ (+ 1)
             )
         pure 8
     LD_A_HLminus -> do
@@ -810,17 +810,17 @@ execute = \case
             registers
             ( \rs ->
                 rs
-                    & a .~ readByte (view memoryBus s) (rs ^. hl)
-                    & hl %~ (\x -> x - 1)
+                    & a !~ readByte (view memoryBus s) (rs ^. hl)
+                    & hl %!~ (\x -> x - 1)
             )
         pure 8
     LD_A_FF00plusU8 n -> do
         modify' $ \s ->
-            s & registers % a .~ readByte (view memoryBus s) (0xff00 + fromIntegral n)
+            s & registers % a !~ readByte (view memoryBus s) (0xff00 + fromIntegral n)
         pure 12
     LD_A_derefU16 n -> do
         modify' $ \s ->
-            s & registers % a .~ readByte (view memoryBus s) n
+            s & registers % a !~ readByte (view memoryBus s) n
         pure 16
     LD_u8 r n -> do
         assign' (registers % targetL r) n
@@ -855,7 +855,7 @@ execute = \case
                 needsHalfCarry = n' .&. 0x0f + fromIntegral orig .&. 0x0f > 0x0f
             in
                 rs
-                    & hl .~ res
+                    & hl !~ res
                     & clearFlag Zero
                     & clearFlag Negative
                     & set (flag Carry) (res' > 0xff)
@@ -866,7 +866,7 @@ execute = \case
             let bitIsSet = Bits.testBit (s ^. registers % targetL r) n
             in s
                 & registers
-                    %~ setFlag HalfCarry
+                    %!~ setFlag HalfCarry
                     . clearFlag Negative
                     . set (flag Zero) (not bitIsSet)
         pure 8
@@ -879,7 +879,7 @@ execute = \case
             in
                 s
                     & registers
-                        %~ setFlag HalfCarry
+                        %!~ setFlag HalfCarry
                         . clearFlag Negative
                         . set (flag Zero) (not bitIsSet)
         pure 12
@@ -889,13 +889,13 @@ execute = \case
     JR_cc cond n -> do
         modify' $ \s ->
             if checkFlagCondition cond s
-                then s & programCounter %~ (+ fromIntegral n)
+                then s & programCounter %!~ (+ fromIntegral n)
                 else s
         pure 12
     JP_cc cond n -> do
         modify' $ \s ->
             if checkFlagCondition cond s
-                then s & programCounter .~ n
+                then s & programCounter !~ n
                 else s
         pure 12
     RET -> do
@@ -930,7 +930,7 @@ execute = \case
         pure 16
     JP_HL -> do
         modifying' registers $ \rs ->
-            rs & pc .~ view hl rs
+            rs & pc !~ view hl rs
         pure 4
     INC r ->
         inc (targetL r)
@@ -993,7 +993,7 @@ execute = \case
             in
                 s
                     & registers
-                        %~ set (flag Carry) carry'
+                        %!~ set (flag Carry) carry'
                         . clearFlag Zero -- TODO: check this: manual says yes, impls say no
                         . clearFlag HalfCarry
                         . set a a'
@@ -1007,7 +1007,7 @@ execute = \case
             in
                 s
                     & registers
-                        %~ set (flag Carry) carry'
+                        %!~ set (flag Carry) carry'
                         . set (flag Zero) (c' == 0)
                         . clearFlag HalfCarry
                         . set c c'
@@ -1123,7 +1123,7 @@ execute = \case
             in
                 s
                     & registers
-                        %~ set (flag Zero) (res == 0)
+                        %!~ set (flag Zero) (res == 0)
                         . setFlag Negative
                         . set (flag HalfCarry) needsHalfCarry
                         . set (flag Carry) (orig < n)
@@ -1135,11 +1135,11 @@ execute = \case
             ( \rs ->
                 let res = view a rs `Bits.xor` n
                 in rs
-                    & flag Zero .~ (res == 0)
+                    & flag Zero !~ (res == 0)
                     & clearFlag Negative
                     & clearFlag HalfCarry
                     & clearFlag Carry
-                    & a .~ res
+                    & a !~ res
             )
         pure 8
     RST addr -> do
@@ -1150,7 +1150,7 @@ execute = \case
     CPL -> do
         modifying' registers $ \rs ->
             rs
-                & a %~ Bits.complement
+                & a %!~ Bits.complement
                 & setFlag Negative
                 & setFlag HalfCarry
         pure 4
@@ -1158,7 +1158,7 @@ execute = \case
         modifying' registers $ \rs ->
             let orig = view (targetL r) rs
             in rs
-                & targetL r %~ (`Bits.rotate` 4)
+                & targetL r %!~ (`Bits.rotate` 4)
                 & clearFlag Negative
                 & clearFlag HalfCarry
                 & clearFlag Carry
@@ -1198,7 +1198,7 @@ add_hl rr = do
             needsHalfCarry = orig .&. 0x0fff + val .&. 0x0fff > 0x0fff
         in
             rs
-                & hl .~ res
+                & hl !~ res
                 & clearFlag Negative
                 & set (flag HalfCarry) needsHalfCarry
                 & set (flag Carry) needsCarry

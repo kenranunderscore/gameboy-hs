@@ -37,7 +37,7 @@ combineRegisters :: Lens' Registers U8 -> Lens' Registers U8 -> Lens' Registers 
 combineRegisters hiL loL =
     lens
         (\r -> combineBytes (view hiL r) (view loL r))
-        (\r n -> let (hi, lo) = splitIntoBytes n in r & hiL .~ hi & loL .~ lo)
+        (\r n -> let (hi, lo) = splitIntoBytes n in r & hiL !~ hi & loL !~ lo)
 
 bc :: Lens' Registers U16
 bc = combineRegisters b c

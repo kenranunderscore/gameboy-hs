@@ -73,7 +73,7 @@ writeByte addr n bus
     | addr < 0xff00 = bus -- forbidden area
     | addr < 0xff80 = writeIO addr n bus
     | addr < 0xffff = writeTo hram 0xff80
-    | addr == 0xffff = bus & ie .~ n
+    | addr == 0xffff = bus & ie !~ n
     | otherwise = error "the impossible happened"
   where
     writeTo dest offset =
@@ -83,9 +83,9 @@ writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
 writeIO addr n bus =
     case addr of
         -- writing anything to the divider or scanline register resets them
-        0xff04 -> bus & divider .~ 0
-        0xff44 -> bus & scanline .~ 0
-        _ -> bus & io % byte relativeAddr .~ n
+        0xff04 -> bus & divider !~ 0
+        0xff44 -> bus & scanline !~ 0
+        _ -> bus & io % byte relativeAddr !~ n
   where
     relativeAddr = addr - 0xff00
 

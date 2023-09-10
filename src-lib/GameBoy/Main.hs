@@ -30,7 +30,7 @@ mainLoop scrRef = forever $ do
         s <- get
         instr <- fetch
         cycles <- execute instr
-        liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+        -- liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
         void $ updateTimers cycles
         void $ updateGraphics cycles
         void $ handleInterrupts
