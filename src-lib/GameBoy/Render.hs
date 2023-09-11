@@ -14,6 +14,8 @@ import SDL qualified
 
 import GameBoy.State (InMemoryScreen)
 
+tileSize = 8
+
 renderScreen :: MonadIO m => SDL.Renderer -> InMemoryScreen -> m ()
 renderScreen renderer scr = do
     SDL.clear renderer
@@ -21,7 +23,10 @@ renderScreen renderer scr = do
         ( \(y, line) ->
             traverse_
                 ( \(x, color) -> do
-                    let rect = SDL.Rectangle (SDL.P $ SDL.V2 (8 * fromIntegral x) (8 * fromIntegral y)) (SDL.V2 8 8)
+                    let rect =
+                            SDL.Rectangle
+                                (SDL.P $ SDL.V2 (tileSize * fromIntegral x) (tileSize * fromIntegral y))
+                                (SDL.V2 tileSize tileSize)
                     SDL.rendererDrawColor renderer $= getColor color
                     SDL.fillRect renderer (Just rect)
                 )
@@ -71,13 +76,16 @@ withSdl =
         )
 
 withSdlWindow :: (SDL.Window -> IO a) -> IO a
-withSdlWindow =
+withSdlWindow action = do
+    -- let windowConfig = SDL.defaultWindow{SDL.windowInitialSize = SDL.V2 (160 * tileSize) (144 * tileSize)}
+    let windowConfig = SDL.defaultWindow{SDL.windowInitialSize = SDL.V2 (255 * tileSize) (255 * tileSize)}
     Exception.bracket
-        (SDL.createWindow "GameBoy emulator" SDL.defaultWindow)
+        (SDL.createWindow "GameBoy emulator" windowConfig)
         ( \w -> do
             SDL.destroyWindow w
             putStrLn "Window destroyed"
         )
+        action
 
 withSdlRenderer :: SDL.Window -> (SDL.Renderer -> IO a) -> IO a
 withSdlRenderer window =

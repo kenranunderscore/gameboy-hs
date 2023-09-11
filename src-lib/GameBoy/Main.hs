@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module GameBoy.Main (main) where
@@ -6,9 +7,11 @@ import Control.Concurrent.Async qualified as Async
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.IORef
+import Data.Vector qualified as Vector
 import Optics
 import System.Environment qualified as Environment
 
+import Data.Foldable
 import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
@@ -23,8 +26,9 @@ mainLoop :: (MonadIO m, GameBoy m) => IORef InMemoryScreen -> m ()
 mainLoop scrRef = forever $ do
     oneFrame 0
     liftIO $ putStrLn "    [FRAME FINISHED]"
-    scr <- use screen
-    liftIO $ writeIORef scrRef scr
+    fullBG <- snapshotBackgroundArea
+    -- scr <- use screen
+    liftIO $ writeIORef scrRef fullBG
   where
     oneFrame n = when (n < maxCyclesPerFrame) $ do
         s <- get
@@ -35,6 +39,36 @@ mainLoop scrRef = forever $ do
         void $ updateGraphics cycles
         void $ handleInterrupts
         oneFrame (n + cycles)
+    snapshotBackgroundArea = do
+        bus <- use memoryBus
+        let
+            addr =
+                case bus ^. bgTileMapArea of
+                    Area9800 -> 0x9800
+                    Area9C00 -> 0x9C00
+            tiles =
+                Vector.concatMap
+                    ( \y ->
+                        let rowTiles =
+                                fmap
+                                    ( \x ->
+                                        let
+                                            tileIdentifierAddr = addr + 32 * y + x
+                                            tileIdentifier = readByte bus tileIdentifierAddr
+                                            tileAddr = determineTileAddress tileIdentifier (bus ^. addressingMode)
+                                        in
+                                            readTile bus tileAddr
+                                    )
+                                    (Vector.fromList [0 .. 31])
+                        in Vector.foldl1' (\v w -> Vector.zipWith (Vector.++) v w) rowTiles
+                    )
+                    (Vector.fromList [0 .. 31])
+            toU8 = \case
+                Color0 -> 0 :: U8
+                Color1 -> 1
+                Color2 -> 2
+                Color3 -> 3
+        pure $ fmap (fmap toU8) tiles
 
 main :: IO ()
 main = do

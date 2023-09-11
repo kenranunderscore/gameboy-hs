@@ -693,7 +693,7 @@ writeMemory :: GameBoy m => U16 -> U8 -> m ()
 writeMemory addr n =
     case addr of
         0xff46 ->
-            trace "    [DMA TRANSFER]" dmaTransfer n
+            trace ("    [DMA TRANSFER] : " <> toHex n) (dmaTransfer n)
         -- HACK: "listen" for changes that potentially cascade to other state
         -- changes here
         0xff07 -> do
