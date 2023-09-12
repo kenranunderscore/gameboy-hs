@@ -155,6 +155,7 @@ data Instr
     | POP TargetRegister16
     | POP_AF
     | RLA
+    | RRA
     | RL_C
     | DI
     | EI
@@ -241,6 +242,7 @@ instance Show Instr where
         POP rr -> "POP " <> show rr
         POP_AF -> "POP AF"
         RLA -> "RLA"
+        RRA -> "RRA"
         RL_C -> "RL C"
         DI -> "DI"
         EI -> "EI"
@@ -332,6 +334,7 @@ fetch = do
         0x1c -> pure $ INC E
         0x1d -> pure $ DEC E
         0x1e -> LD_u8 E <$> fetchByteM
+        0x1f -> pure RRA
         0x20 -> JR_cc ZUnset <$> fetchI8M
         0x21 -> LD_u16 HL <$> fetchU16M
         0x22 -> pure LD_HLplus_A
@@ -1035,18 +1038,33 @@ execute = \case
         assign' (registers % af) n
         pure 12
     RLA -> do
-        modify' $ \s ->
+        modifying' registers $ \rs ->
             let
-                orig = s ^. registers % a
-                carry = if hasFlag Carry s then 1 else 0
+                orig = rs ^. a
+                carry = if view (flag Carry) rs then 1 else 0
                 carry' = Bits.testBit orig 7
                 a' = Bits.shiftL orig 1 + carry
             in
-                s
-                    & registers
-                        %!~ set (flag Carry) carry'
+                rs
+                    & set (flag Carry) carry'
                         . clearFlag Zero
                         . clearFlag HalfCarry
+                        . clearFlag Negative
+                        . set a a'
+        pure 4
+    RRA -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. a
+                carry = if view (flag Carry) rs then 1 else 0
+                carry' = Bits.testBit orig 0
+                a' = Bits.shiftR orig 1 + Bits.shiftL carry 7
+            in
+                rs
+                    & set (flag Carry) carry'
+                        . clearFlag Zero
+                        . clearFlag HalfCarry
+                        . clearFlag Negative
                         . set a a'
         pure 4
     RL_C -> do
