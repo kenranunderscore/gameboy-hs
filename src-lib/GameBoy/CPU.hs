@@ -9,7 +9,7 @@ module GameBoy.CPU where
 
 import Control.Monad
 import Control.Monad.State.Strict
-import Data.Bits ((.&.), (.|.))
+import Data.Bits ((.&.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
 import Data.Word (Word32)
 import Debug.Trace
@@ -191,6 +191,10 @@ data Instr
     | ADD_HL_SP
     | RES Int TargetRegister
     | SET Int TargetRegister
+    | SRL TargetRegister
+    | SRL_derefHL
+    | RR TargetRegister
+    | RR_derefHL
 
 instance Show Instr where
     show = \case
@@ -273,6 +277,10 @@ instance Show Instr where
         ADD_HL_SP -> "ADD HL,SP"
         RES n r -> "RES " <> show n <> "," <> show r
         SET n r -> "SET " <> show n <> "," <> show r
+        SRL r -> "SRL " <> show r
+        SRL_derefHL -> "SRL (HL)"
+        RR r -> "RR " <> show r
+        RR_derefHL -> "RR (HL)"
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -535,6 +543,14 @@ fetchPrefixed = do
     advance 1
     pure $ case readByte bus counter of
         0x11 -> RL_C
+        0x18 -> RR B
+        0x19 -> RR C
+        0x1a -> RR D
+        0x1b -> RR E
+        0x1c -> RR H
+        0x1d -> RR L
+        0x1e -> RR_derefHL
+        0x1f -> RR A
         0x30 -> SWAP B
         0x31 -> SWAP C
         0x32 -> SWAP D
@@ -543,6 +559,14 @@ fetchPrefixed = do
         0x35 -> SWAP L
         0x36 -> SWAP_derefHL
         0x37 -> SWAP A
+        0x38 -> SRL B
+        0x39 -> SRL C
+        0x3a -> SRL D
+        0x3b -> SRL E
+        0x3c -> SRL H
+        0x3d -> SRL L
+        0x3e -> SRL_derefHL
+        0x3f -> SRL A
         0x48 -> BIT 1 B
         0x49 -> BIT 1 C
         0x4a -> BIT 1 D
@@ -1013,14 +1037,15 @@ execute = \case
     RLA -> do
         modify' $ \s ->
             let
+                orig = s ^. registers % a
                 carry = if hasFlag Carry s then 1 else 0
-                carry' = Bits.testBit (s ^. registers % a) 7
-                a' = Bits.shiftL (s ^. registers % a) 1 + carry
+                carry' = Bits.testBit orig 7
+                a' = Bits.shiftL orig 1 + carry
             in
                 s
                     & registers
                         %!~ set (flag Carry) carry'
-                        . clearFlag Zero -- TODO: check this: manual says yes, impls say no
+                        . clearFlag Zero
                         . clearFlag HalfCarry
                         . set a a'
         pure 4
@@ -1108,13 +1133,16 @@ execute = \case
         pure 4
     SWAP r -> do
         modifying' registers $ \rs ->
-            let orig = view (targetL r) rs
-            in rs
-                & targetL r %!~ (`Bits.rotate` 4)
-                & clearFlag Negative
-                & clearFlag HalfCarry
-                & clearFlag Carry
-                & set (flag Zero) (orig == 0)
+            let
+                orig = view (targetL r) rs
+                res = Bits.rotate orig 4
+            in
+                rs
+                    & targetL r !~ res
+                    & clearFlag Negative
+                    & clearFlag HalfCarry
+                    & clearFlag Carry
+                    & set (flag Zero) (res == 0)
         pure 8
     SWAP_derefHL -> do
         s <- get
@@ -1122,13 +1150,14 @@ execute = \case
             rs = s ^. registers
             addr = rs ^. hl
             orig = readByte (view memoryBus s) addr
-        writeMemory addr (Bits.rotate orig 4)
+            res = Bits.rotate orig 4
+        writeMemory addr res
         modifying'
             registers
             ( clearFlag Negative
                 . clearFlag HalfCarry
                 . clearFlag Carry
-                . set (flag Zero) (orig == 0)
+                . set (flag Zero) (res == 0)
             )
         pure 16
     RES n r -> do
@@ -1137,6 +1166,62 @@ execute = \case
     SET n r -> do
         modifying (registers % targetL r) (`Bits.setBit` n)
         pure 8
+    SRL r -> do
+        modifying' registers $ \rs ->
+            let
+                orig = view (targetL r) rs
+                res = orig .>>. 1
+            in
+                rs
+                    & targetL r !~ res
+                    & clearFlag Negative
+                    & clearFlag HalfCarry
+                    & set (flag Carry) (Bits.testBit orig 0)
+                    & set (flag Zero) (res == 0)
+        pure 8
+    SRL_derefHL -> do
+        s <- get
+        let
+            addr = s ^. registers % hl
+            orig = readByte (view memoryBus s) addr
+            res = orig .>>. 1
+        writeMemory addr res
+        modifying' registers $
+            clearFlag Negative
+                . clearFlag HalfCarry
+                . set (flag Carry) (Bits.testBit orig 0)
+                . set (flag Zero) (res == 0)
+        pure 16
+    RR r -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. targetL r
+                carry = if view (flag Carry) rs then 1 else 0
+                carry' = Bits.testBit orig 0
+                res = Bits.shiftR orig 1 + Bits.shiftL carry 7
+            in
+                rs
+                    & set (flag Carry) carry'
+                        . set (flag Zero) (res == 0)
+                        . clearFlag HalfCarry
+                        . clearFlag Negative
+                        . set (targetL r) res
+        pure 8
+    RR_derefHL -> do
+        s <- get
+        let
+            addr = s ^. registers % hl
+            carry = if hasFlag Carry s then 1 else 0
+            orig = readByte (view memoryBus s) addr
+            carry' = Bits.testBit orig 0
+            res = Bits.shiftR orig 1 + Bits.shiftL carry 7
+        writeMemory addr res
+        modifying' registers $
+            set (flag Carry) carry'
+                . set (flag Zero) (res == 0)
+                . clearFlag HalfCarry
+                . clearFlag Negative
+        pure 16
 
 add_hl :: GameBoy m => Lens' Registers U16 -> m Int
 add_hl rr = do
