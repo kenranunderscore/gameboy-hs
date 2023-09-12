@@ -716,6 +716,9 @@ fetchPrefixed = do
 writeMemory :: GameBoy m => U16 -> U8 -> m ()
 writeMemory addr n =
     case addr of
+        0xff44 -> do
+            -- reset scanline if the CPU writes to it
+            modifying' memoryBus (writeByte addr 0)
         0xff46 ->
             trace ("    [DMA TRANSFER] : " <> toHex n) (dmaTransfer n)
         -- HACK: "listen" for changes that potentially cascade to other state
