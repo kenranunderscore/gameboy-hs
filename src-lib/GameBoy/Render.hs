@@ -88,9 +88,10 @@ withSdlWindow action = do
         action
 
 withSdlRenderer :: SDL.Window -> (SDL.Renderer -> IO a) -> IO a
-withSdlRenderer window =
+withSdlRenderer window = do
+    let rendererConfig = SDL.defaultRenderer{SDL.rendererType = SDL.AcceleratedVSyncRenderer}
     Exception.bracket
-        (SDL.createRenderer window (-1) SDL.defaultRenderer)
+        (SDL.createRenderer window (-1) rendererConfig)
         ( \r -> do
             SDL.destroyRenderer r
             putStrLn "Renderer destroyed"
