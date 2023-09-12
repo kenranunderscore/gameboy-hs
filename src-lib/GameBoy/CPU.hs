@@ -114,6 +114,7 @@ instance Show RestartAddr where
 data Instr
     = LD_u16 TargetRegister16 U16
     | LD_SP_u16 U16
+    | LD_SP_HL
     | LD_A_derefDE
     | LD_A_FF00plusU8 U8
     | LD_A_HLplus
@@ -130,6 +131,7 @@ data Instr
     | LD_r_HLderef TargetRegister
     | LD TargetRegister TargetRegister
     | LD_HL_SP I8
+    | LD_derefHL TargetRegister
     | BIT Int TargetRegister
     | BIT_n_derefHL Int
     | JP U16
@@ -201,6 +203,7 @@ instance Show Instr where
     show = \case
         LD_u16 rr n -> "LD " <> show rr <> "," <> toHex n
         LD_SP_u16 n -> "LD SP," <> toHex n
+        LD_SP_HL -> "LD SP,HL"
         LD_deref_rr_A rr -> "LD (" <> show rr <> "),A"
         LD_r_HLderef r -> "LD " <> show r <> ",(HL)"
         LD_HLminus_A -> "LD (HL-),A"
@@ -217,6 +220,7 @@ instance Show Instr where
         LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
         LD_u16_A n -> "LD (" <> toHex n <> "),A"
         LD_HL_SP n -> "LD HL,SP" <> (if n < 0 then mempty else "+") <> toHex n
+        LD_derefHL r -> "LD (HL)," <> show r
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
         JP n -> "JP " <> toHex n
@@ -412,7 +416,13 @@ fetch = do
         0x6d -> pure $ LD L L
         0x6e -> pure $ LD_r_HLderef L
         0x6f -> pure $ LD L A
-        0x77 -> pure $ LD_deref_rr_A HL
+        0x70 -> pure $ LD_derefHL B
+        0x71 -> pure $ LD_derefHL C
+        0x72 -> pure $ LD_derefHL D
+        0x73 -> pure $ LD_derefHL E
+        0x74 -> pure $ LD_derefHL H
+        0x75 -> pure $ LD_derefHL L
+        0x77 -> pure $ LD_derefHL A
         0x78 -> pure $ LD A B
         0x79 -> pure $ LD A C
         0x7a -> pure $ LD A D
@@ -531,6 +541,7 @@ fetch = do
         0xf6 -> OR_u8 <$> fetchByteM
         0xf7 -> pure $ RST Rst30
         0xf8 -> LD_HL_SP <$> fetchI8M
+        0xf9 -> pure LD_SP_HL
         0xfa -> LD_A_derefU16 <$> fetchU16M
         0xfb -> pure EI
         0xfe -> CP_u8 <$> fetchByteM
@@ -898,8 +909,16 @@ execute = \case
         writeMemory (0xff00 + fromIntegral n) (s ^. registers % a)
         pure 12
     LD_deref_rr_A rr -> do
-        s <- get
-        writeMemory (s ^. registers % target16L rr) (s ^. registers % a)
+        rs <- use registers
+        writeMemory (rs ^. target16L rr) (rs ^. a)
+        pure 8
+    LD_derefHL r -> do
+        rs <- use registers
+        writeMemory (rs ^. hl) (rs ^. targetL r)
+        pure 8
+    LD_SP_HL -> do
+        modifying registers $ \rs ->
+            rs & set pc (view hl rs)
         pure 8
     LD_HL_SP n -> do
         modifying' registers $ \rs ->
