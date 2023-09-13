@@ -1129,8 +1129,15 @@ execute = \case
         s <- get
         let
             addr = s ^. registers % hl
-            val = readByte (view memoryBus s) addr + 1
+            orig = readByte (view memoryBus s) addr
+            val = orig + 1
         writeMemory addr val
+        modifying'
+            registers
+            ( set (flag Zero) (val == 0)
+                . clearFlag Negative
+                . set (flag HalfCarry) (val .&. 0xf == 0)
+            )
         pure 12
     INC16 r -> do
         modifying' (registers % (target16L r)) (+ 1)
@@ -1418,7 +1425,7 @@ execute = \case
             addr = s ^. registers % hl
             orig = readByte (view memoryBus s) addr
             carry = Bits.testBit orig 0
-            res = Bits.shiftR orig 1
+            res = Bits.rotateR orig 1
         writeMemory addr res
         modifying' registers $
             set (flag Carry) carry
@@ -1476,7 +1483,7 @@ execute = \case
             addr = s ^. registers % hl
             orig = readByte (view memoryBus s) addr
             carry = Bits.testBit orig 7
-            res = Bits.shiftL orig 1
+            res = Bits.rotateL orig 1
         writeMemory addr res
         modifying' registers $
             set (flag Carry) carry
@@ -1534,7 +1541,7 @@ execute = \case
             orig = readByte (view memoryBus s) addr
             carry = Bits.testBit orig 0
             msb = orig .&. 0x80
-            res = Bits.shiftL orig 1 + msb
+            res = Bits.shiftR orig 1 + msb
         writeMemory addr res
         modifying' registers $
             set (flag Carry) carry
