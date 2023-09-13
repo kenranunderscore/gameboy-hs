@@ -113,9 +113,11 @@ instance Show RestartAddr where
 data Instr
     = LD_u16 TargetRegister16 U16
     | LD_SP_u16 U16
+    | LD_u16_SP U16
     | LD_SP_HL
     | LD_A_derefDE
     | LD_A_FF00plusU8 U8
+    | LD_A_FF00plusC
     | LD_A_HLplus
     | LD_A_HLminus
     | LD_A_derefU16 U16
@@ -202,6 +204,7 @@ instance Show Instr where
     show = \case
         LD_u16 rr n -> "LD " <> show rr <> "," <> toHex n
         LD_SP_u16 n -> "LD SP," <> toHex n
+        LD_u16_SP n -> "LD (" <> toHex n <> "),SP"
         LD_SP_HL -> "LD SP,HL"
         LD_deref_rr_A rr -> "LD (" <> show rr <> "),A"
         LD_r_HLderef r -> "LD " <> show r <> ",(HL)"
@@ -212,13 +215,14 @@ instance Show Instr where
         LD_A_HLminus -> "LD A,(HL-)"
         LD_A_derefDE -> "LD A,(DE)"
         LD_A_FF00plusU8 n -> "LD A,($ff00+" <> toHex n <> ")"
+        LD_A_FF00plusC -> "LD A,($ff00+C)"
         LD_A_derefU16 n -> "LD A,(" <> toHex n <> ")"
         LD r r' -> "LD " <> show r <> "," <> show r'
         LD_u8 r n -> "LD " <> show r <> "," <> toHex n
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
         LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
         LD_u16_A n -> "LD (" <> toHex n <> "),A"
-        LD_HL_SP n -> "LD HL,SP" <> (if n < 0 then mempty else "+") <> toHex n
+        LD_HL_SP n -> "LD HL,SP" <> (if n < 0 then mempty else "+") <> show n
         LD_derefHL r -> "LD (HL)," <> show r
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
@@ -318,6 +322,7 @@ fetch = do
         0x04 -> pure $ INC B
         0x05 -> pure $ DEC B
         0x06 -> LD_u8 B <$> fetchByteM
+        0x08 -> LD_u16_SP <$> fetchU16M
         0x09 -> pure $ ADD_HL BC
         0x0b -> pure $ DEC16 BC
         0x0c -> pure $ INC C
@@ -535,6 +540,7 @@ fetch = do
         0xef -> pure $ RST Rst28
         0xf0 -> LD_A_FF00plusU8 <$> fetchByteM
         0xf1 -> pure POP_AF
+        0xf2 -> pure LD_A_FF00plusC
         0xf3 -> pure DI
         0xf5 -> pure PUSH_AF
         0xf6 -> OR_u8 <$> fetchByteM
@@ -839,6 +845,11 @@ execute = \case
     LD_SP_u16 n -> do
         assign' (registers % sp) n
         pure 12
+    LD_u16_SP n -> do
+        (hi, lo) <- splitIntoBytes <$> use stackPointer
+        writeMemory n lo
+        writeMemory (n + 1) hi
+        pure 20
     LD_r_HLderef r -> do
         n <- deref hl
         assign' (registers % targetL r) n
@@ -885,6 +896,11 @@ execute = \case
         modify' $ \s ->
             s & registers % a !~ readByte (view memoryBus s) (0xff00 + fromIntegral n)
         pure 12
+    LD_A_FF00plusC -> do
+        modify' $ \s ->
+            let offset = s ^. registers % c
+            in s & registers % a !~ readByte (view memoryBus s) (0xff00 + fromIntegral offset)
+        pure 8
     LD_A_derefU16 n -> do
         modify' $ \s ->
             s & registers % a !~ readByte (view memoryBus s) n
@@ -917,7 +933,7 @@ execute = \case
         pure 8
     LD_SP_HL -> do
         modifying registers $ \rs ->
-            rs & set pc (view hl rs)
+            rs & set sp (view hl rs)
         pure 8
     LD_HL_SP n -> do
         modifying' registers $ \rs ->
@@ -1053,7 +1069,7 @@ execute = \case
         pure 12
     POP_AF -> do
         n <- pop
-        assign' (registers % af) n
+        assign' (registers % af) (n .&. 0xfff0)
         pure 12
     RLA -> do
         modifying' registers $ \rs ->
