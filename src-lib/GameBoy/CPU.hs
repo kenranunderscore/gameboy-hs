@@ -9,7 +9,7 @@ module GameBoy.CPU where
 
 import Control.Monad
 import Control.Monad.State.Strict
-import Data.Bits ((.&.), (.>>.), (.|.))
+import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
 import Debug.Trace
 import Optics
@@ -212,6 +212,10 @@ data Instr
     | SRA TargetRegister
     | SRA_derefHL
     | DAA
+    | SCF
+    | CCF
+    | RLCA
+    | RRCA
 
 instance Show Instr where
     show = \case
@@ -316,6 +320,10 @@ instance Show Instr where
         SRA r -> "SRA " <> show r
         SRA_derefHL -> "SRA (HL)"
         DAA -> "DAA"
+        SCF -> "SCF"
+        CCF -> "CCF"
+        RLCA -> "RLCA"
+        RRCA -> "RRCA"
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -348,6 +356,7 @@ fetch = do
         0x04 -> pure $ INC B
         0x05 -> pure $ DEC B
         0x06 -> LD_u8 B <$> fetchByteM
+        0x07 -> pure RLCA
         0x08 -> LD_u16_SP <$> fetchU16M
         0x09 -> pure $ ADD_HL BC
         0x0a -> pure $ LD_A_deref BC
@@ -355,6 +364,7 @@ fetch = do
         0x0c -> pure $ INC C
         0x0d -> pure $ DEC C
         0x0e -> LD_u8 C <$> fetchByteM
+        0x0f -> pure RRCA
         0x11 -> LD_u16 DE <$> fetchU16M
         0x12 -> pure $ LD_deref_rr_A DE
         0x13 -> pure $ INC16 DE
@@ -393,6 +403,7 @@ fetch = do
         0x34 -> pure INC_derefHL
         0x35 -> pure DEC_derefHL
         0x36 -> LD_HLderef_u8 <$> fetchByteM
+        0x37 -> pure SCF
         0x38 -> JR_cc CSet <$> fetchI8M
         0x39 -> pure ADD_HL_SP
         0x3a -> pure LD_A_HLminus
@@ -400,6 +411,7 @@ fetch = do
         0x3c -> pure $ INC A
         0x3d -> pure $ DEC A
         0x3e -> LD_u8 A <$> fetchByteM
+        0x3f -> pure CCF
         0x40 -> pure $ LD B B
         0x41 -> pure $ LD B C
         0x42 -> pure $ LD B D
@@ -1391,7 +1403,7 @@ execute = \case
             let
                 orig = rs ^. targetL r
                 carry = Bits.testBit orig 0
-                res = Bits.shiftR orig 1
+                res = Bits.rotateR orig 1
             in
                 rs
                     & set (flag Carry) carry
@@ -1449,7 +1461,7 @@ execute = \case
             let
                 orig = rs ^. targetL r
                 carry = Bits.testBit orig 7
-                res = Bits.shiftL orig 1
+                res = Bits.rotateL orig 1
             in
                 rs
                     & set (flag Carry) carry
@@ -1532,6 +1544,48 @@ execute = \case
         pure 16
     DAA ->
         daa
+    SCF -> do
+        modifying' registers $ \rs ->
+            rs
+                & clearFlag Negative
+                    . clearFlag HalfCarry
+                    . setFlag Carry
+        pure 4
+    CCF -> do
+        modifying' registers $ \rs ->
+            rs
+                & clearFlag Negative
+                    . clearFlag HalfCarry
+                    . set (flag Carry) (not $ view (flag Carry) rs)
+        pure 4
+    RLCA -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. a
+                res = Bits.rotateL orig 1
+                needsCarry = Bits.testBit orig 7
+            in
+                rs
+                    & clearFlag Zero
+                        . clearFlag Negative
+                        . clearFlag HalfCarry
+                        . set (flag Carry) needsCarry
+                        . set a res
+        pure 4
+    RRCA -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs ^. a
+                res = Bits.rotateR orig 1
+                needsCarry = Bits.testBit orig 0
+            in
+                rs
+                    & clearFlag Zero
+                        . clearFlag Negative
+                        . clearFlag HalfCarry
+                        . set (flag Carry) needsCarry
+                        . set a res
+        pure 4
 
 daa :: GameBoy m => m Int
 daa = do
@@ -1736,16 +1790,16 @@ sbc_a r = do
         let
             orig = rs ^. a
             carry = if rs ^. flag Carry then 1 else 0
-            -- FIXME: check if this correct in case the carry bit overflows
-            -- val
-            val = rs ^. targetL r + carry
-            res = rs ^. a - val
-            needsHalfCarry = orig .&. 0x0f < val .&. 0x0f
+            n = rs ^. targetL r
+            val = n + carry
+            res = orig - val
+            needsHalfCarry = toI16 orig .&. 0xf - toI16 n .&. 0xf - toI16 carry < 0
+            needsCarry = toI16 orig - toI16 n - toI16 carry < 0
         in
             rs
                 & set a res
                     . setFlag Negative
-                    . set (flag Carry) (orig < val)
+                    . set (flag Carry) needsCarry
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
     pure 4

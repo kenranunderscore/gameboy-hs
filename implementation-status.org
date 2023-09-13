@@ -1,6 +1,6 @@
 #+title: State of the implementation
 
-* CPU instruction checks [6/11]
+* CPU instruction checks [7/11]
 - [X] 01-special
 - [ ] 02-interrupts: out-of-bounds error
 - [ ] 03-op sp,hl: unknown opcode e8 (ADD SP,i8)
@@ -9,6 +9,6 @@
 - [X] 06-ld r,r
 - [X] 07-jumps,returns
 - [X] 08-misc
-- [ ] 09-op r,r: unknown opcode 37 (SCF)
+- [X] 09-op r,r
 - [ ] 10-bitops: instructions missing or infinite loop?
 - [ ] 11-op a,(hl): unknown opcode 27 (DAA)
