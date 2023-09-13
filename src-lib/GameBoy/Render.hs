@@ -14,7 +14,7 @@ import SDL qualified
 
 import GameBoy.State (InMemoryScreen)
 
-tileSize = 8
+tileSize = 4
 
 renderScreen :: MonadIO m => SDL.Renderer -> InMemoryScreen -> m ()
 renderScreen renderer scr = do
