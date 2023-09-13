@@ -11,7 +11,6 @@ import Data.Vector qualified as Vector
 import Optics
 import System.Environment qualified as Environment
 
-import Data.Foldable
 import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Memory
@@ -32,9 +31,24 @@ mainLoop scrRef = forever $ do
   where
     oneFrame n = when (n < maxCyclesPerFrame) $ do
         s <- get
-        instr <- fetch
-        cycles <- execute instr
-        -- liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+        cycles <-
+            if not $ s ^. halted
+                then
+                    ( do
+                        instr <- fetch
+                        cycles <- execute instr
+                        liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+                        pure cycles
+                    )
+                else do
+                    liftIO $ putStrLn "  [HALT]"
+                    when (s ^. memoryBus % interruptFlags > 0) $
+                        assign' halted False
+                    pure 4
+        -- liftIO $ putStrLn $ " LCDC: " <> toHex (view (memoryBus % lcdc) s)
+        -- liftIO $ putStrLn $ " MODE: " <> show (view (memoryBus % addressingMode) s)
+        -- liftIO $ putStrLn $ " MAP: " <> show (view (memoryBus % bgTileMapArea) s)
+        -- dumpRegisters
         void $ updateTimers cycles
         void $ updateGraphics cycles
         void $ handleInterrupts
@@ -42,10 +56,9 @@ mainLoop scrRef = forever $ do
     snapshotBackgroundArea = do
         bus <- use memoryBus
         let
-            addr =
-                case bus ^. bgTileMapArea of
-                    Area9800 -> 0x9800
-                    Area9C00 -> 0x9C00
+            addr = case bus ^. bgTileMapArea of
+                Area9800 -> 0x9800
+                Area9C00 -> 0x9C00
             tiles =
                 Vector.concatMap
                     ( \y ->
@@ -63,12 +76,12 @@ mainLoop scrRef = forever $ do
                         in Vector.foldl1' (\v w -> Vector.zipWith (Vector.++) v w) rowTiles
                     )
                     (Vector.fromList [0 .. 31])
-            toU8 = \case
+            colorToU8 = \case
                 Color0 -> 0 :: U8
                 Color1 -> 1
                 Color2 -> 2
                 Color3 -> 3
-        pure $ fmap (fmap toU8) tiles
+        pure $ fmap (fmap colorToU8) tiles
 
 main :: IO ()
 main = do
@@ -82,3 +95,6 @@ main = do
                 bus <- initializeMemoryBus cartridgePath
                 void $ execStateT (mainLoop scrRef) (mkInitialState bus)
             void $ Async.waitAnyCancel [graphics, game]
+
+dumpRegisters :: (MonadIO m, GameBoy m) => m ()
+dumpRegisters = use registers >>= liftIO . print

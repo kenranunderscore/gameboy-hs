@@ -216,6 +216,7 @@ data Instr
     | CCF
     | RLCA
     | RRCA
+    | HALT
 
 instance Show Instr where
     show = \case
@@ -324,6 +325,7 @@ instance Show Instr where
         CCF -> "CCF"
         RLCA -> "RLCA"
         RRCA -> "RRCA"
+        HALT -> "HALT"
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -466,6 +468,7 @@ fetch = do
         0x73 -> pure $ LD_derefHL E
         0x74 -> pure $ LD_derefHL H
         0x75 -> pure $ LD_derefHL L
+        0x76 -> pure HALT
         0x77 -> pure $ LD_derefHL A
         0x78 -> pure $ LD A B
         0x79 -> pure $ LD A C
@@ -1591,6 +1594,9 @@ execute = \case
                         . clearFlag HalfCarry
                         . set (flag Carry) needsCarry
                         . set a res
+        pure 4
+    HALT -> do
+        assign' halted True
         pure 4
 
 daa :: GameBoy m => m Int

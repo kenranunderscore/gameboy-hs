@@ -78,6 +78,7 @@ data CPUState = CPUState
     , _masterInterruptEnable :: Bool
     , _scanlineCounter :: Int
     , _screen :: InMemoryScreen
+    , _halted :: Bool
     }
     deriving stock (Show)
 
@@ -90,7 +91,8 @@ stackPointer :: Lens' CPUState U16
 stackPointer = registers % sp
 
 mkInitialState :: MemoryBus -> CPUState
-mkInitialState bus = CPUState initialRegisters bus 0 1024 True 456 emptyScreen
+mkInitialState bus =
+    CPUState initialRegisters bus 0 1024 True 456 emptyScreen False
   where
     initialRegisters =
         Registers
