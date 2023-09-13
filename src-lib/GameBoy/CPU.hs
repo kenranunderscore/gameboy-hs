@@ -1042,19 +1042,18 @@ execute = \case
     LD_HL_SP n -> do
         modifying' registers $ \rs ->
             let
-                -- FIXME: this is most definitely wrong!!
                 orig = rs ^. sp
-                n' = toU8 n
-                res' = toU16 orig + toU16 n'
+                res' = fromIntegral @_ @I32 orig + fromIntegral n
                 res = fromIntegral res'
-                needsHalfCarry = n' .&. 0x0f + fromIntegral orig .&. 0x0f > 0x0f
+                needsHalfCarry = toU8 n .&. 0x0f + fromIntegral (orig .&. 0x0f) > 0x0f
+                needsCarry = res' .&. 0xffff0000 > 0 -- FIXME
             in
                 rs
                     & hl !~ res
                     & clearFlag Zero
                     & clearFlag Negative
-                    & set (flag Carry) (res' > 0xff)
                     & set (flag HalfCarry) needsHalfCarry
+                    & set (flag Carry) (res' > 0xff)
         pure 12
     BIT n r -> do
         modify' $ \s ->
