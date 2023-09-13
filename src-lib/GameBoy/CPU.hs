@@ -11,8 +11,6 @@ import Control.Monad
 import Control.Monad.State.Strict
 import Data.Bits ((.&.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
-import Data.Int (Int16)
-import Data.Word (Word32)
 import Debug.Trace
 import Optics
 
@@ -926,8 +924,8 @@ execute = \case
             let
                 -- FIXME: this is most definitely wrong!!
                 orig = rs ^. sp
-                n' = fromIntegral @_ @U8 n
-                res' = fromIntegral @_ @U16 orig + fromIntegral n'
+                n' = toU8 n
+                res' = toU16 orig + toU16 n'
                 res = fromIntegral res'
                 needsHalfCarry = n' .&. 0x0f + fromIntegral orig .&. 0x0f > 0x0f
             in
@@ -1267,7 +1265,7 @@ add_hl rr = do
         let
             orig = view hl rs
             val = view rr rs
-            res' = fromIntegral @_ @Word32 orig + fromIntegral val
+            res' = fromIntegral @_ @U32 orig + fromIntegral val
             res = fromIntegral res'
             needsCarry = res' > 0xffff
             needsHalfCarry = orig .&. 0x0fff + val .&. 0x0fff > 0x0fff
@@ -1339,7 +1337,7 @@ add_a r = do
         let
             orig = rs ^. a
             val = rs ^. targetL r
-            res' = fromIntegral @_ @U16 orig + fromIntegral val
+            res' = toU16 orig + toU16 val
             res = fromIntegral res'
             needsHalfCarry = (orig .&. 0x0f) + (val .&. 0x0f) > 0x0f
             needsCarry = res' > 0xff
@@ -1357,7 +1355,7 @@ add_a_u8 n = do
     modifying' registers $ \rs ->
         let
             orig = rs ^. a
-            res' = fromIntegral @_ @U16 orig + fromIntegral n
+            res' = toU16 orig + toU16 n
             res = fromIntegral res'
             needsHalfCarry = (orig .&. 0x0f) + (n .&. 0x0f) > 0x0f
             needsCarry = res' > 0xff
@@ -1460,8 +1458,8 @@ sbc_a_u8 n = do
             carry = if rs ^. flag Carry then 1 else 0
             val = n + carry
             res = orig - val
-            needsHalfCarry = fromIntegral @_ @Int16 orig .&. 0xf - fromIntegral n .&. 0xf - fromIntegral carry < 0
-            needsCarry = fromIntegral @_ @Int16 orig - fromIntegral n - fromIntegral carry < 0
+            needsHalfCarry = toI16 orig .&. 0xf - toI16 n .&. 0xf - toI16 carry < 0
+            needsCarry = toI16 orig - toI16 n - toI16 carry < 0
         in
             rs
                 & set a res
@@ -1511,7 +1509,7 @@ adc_a r = do
             orig = rs ^. a
             val = rs ^. targetL r
             carry = if rs ^. flag Carry then 1 else 0
-            res' = fromIntegral @_ @U16 orig + fromIntegral val + fromIntegral carry
+            res' = toU16 orig + toU16 val + toU16 carry
             needsCarry = res' > 0xff
             res = fromIntegral res'
             needsHalfCarry = (orig .&. 0x0f) + (val .&. 0x0f) + carry > 0x0f
@@ -1530,7 +1528,7 @@ adc_a_u8 n = do
         let
             orig = rs ^. a
             carry = if rs ^. flag Carry then 1 else 0
-            res' = fromIntegral @_ @U16 orig + fromIntegral n + fromIntegral carry
+            res' = toU16 orig + toU16 n + toU16 carry
             needsCarry = res' > 0xff
             res = fromIntegral res'
             needsHalfCarry = (orig .&. 0x0f) + (n .&. 0x0f) + carry > 0x0f

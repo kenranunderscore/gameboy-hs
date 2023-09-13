@@ -8,8 +8,20 @@ import Numeric qualified
 import Optics
 
 type U8 = Word8
-type I8 = Int8
 type U16 = Word16
+type U32 = Word32
+
+type I8 = Int8
+type I16 = Int16
+
+toU16 :: Integral a => a -> U16
+toU16 = fromIntegral
+
+toU8 :: Integral a => a -> U8
+toU8 = fromIntegral
+
+toI16 :: Integral a => a -> I16
+toI16 = fromIntegral
 
 toHex :: Integral a => a -> String
 toHex n = "$" <> flip Numeric.showHex mempty n
