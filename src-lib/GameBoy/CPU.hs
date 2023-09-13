@@ -192,6 +192,7 @@ data Instr
     | SWAP_derefHL
     | ADD_HL TargetRegister16
     | ADD_HL_SP
+    | ADD_SP I8
     | RES Int TargetRegister
     | RES_derefHL Int
     | SET Int TargetRegister
@@ -294,6 +295,7 @@ instance Show Instr where
         SWAP_derefHL -> "SWAP (HL)"
         ADD_HL rr -> "ADD HL," <> show rr
         ADD_HL_SP -> "ADD HL,SP"
+        ADD_SP n -> "ADD SP," <> show n
         RES n r -> "RES " <> show n <> "," <> show r
         RES_derefHL n -> "RES " <> show n <> ",(HL)"
         SET n r -> "SET " <> show n <> "," <> show r
@@ -557,6 +559,7 @@ fetch = do
         0xe5 -> pure $ PUSH HL
         0xe6 -> AND_u8 <$> fetchByteM
         0xe7 -> pure $ RST Rst20
+        0xe8 -> ADD_SP <$> fetchI8M
         0xe9 -> pure JP_HL
         0xea -> LD_u16_A <$> fetchU16M
         0xee -> XOR_u8 <$> fetchByteM
@@ -1213,6 +1216,22 @@ execute = \case
         add_hl (target16L rr)
     ADD_HL_SP ->
         add_hl sp
+    ADD_SP n -> do
+        modifying' registers $ \rs ->
+            let
+                orig = rs._sp
+                res' = fromIntegral @_ @I32 orig + fromIntegral n
+                res = fromIntegral res
+                needsCarry = res' .&. 0xffff0000 > 0
+                needsHalfCarry = res' .&. 0xffff0000 > 0
+            in
+                rs
+                    & clearFlag Negative
+                        . clearFlag Zero
+                        . set (flag Carry) needsCarry
+                        . set (flag HalfCarry) needsHalfCarry
+                        . set sp res
+        pure 16
     SUB r ->
         sub_a r
     SUB_u8 n ->

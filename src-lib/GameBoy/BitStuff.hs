@@ -13,6 +13,7 @@ type U32 = Word32
 
 type I8 = Int8
 type I16 = Int16
+type I32 = Int32
 
 toU16 :: Integral a => a -> U16
 toU16 = fromIntegral
