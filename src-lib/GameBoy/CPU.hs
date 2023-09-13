@@ -11,6 +11,7 @@ import Control.Monad
 import Control.Monad.State.Strict
 import Data.Bits ((.&.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
+import Data.Int (Int16)
 import Data.Word (Word32)
 import Debug.Trace
 import Optics
@@ -1457,16 +1458,15 @@ sbc_a_u8 n = do
         let
             orig = rs ^. a
             carry = if rs ^. flag Carry then 1 else 0
-            -- FIXME: check if this correct in case the carry bit overflows
-            -- val
             val = n + carry
-            res = rs ^. a - val
-            needsHalfCarry = orig .&. 0x0f < val .&. 0x0f
+            res = orig - val
+            needsHalfCarry = fromIntegral @_ @Int16 orig .&. 0xf - fromIntegral n .&. 0xf - fromIntegral carry < 0
+            needsCarry = fromIntegral @_ @Int16 orig - fromIntegral n - fromIntegral carry < 0
         in
             rs
                 & set a res
-                    . clearFlag Negative
-                    . set (flag Carry) (orig < val)
+                    . setFlag Negative
+                    . set (flag Carry) needsCarry
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
     pure 8
