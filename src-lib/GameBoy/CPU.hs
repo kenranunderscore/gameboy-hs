@@ -1445,7 +1445,7 @@ sbc_a r = do
         in
             rs
                 & set a res
-                    . clearFlag Negative
+                    . setFlag Negative
                     . set (flag Carry) (orig < val)
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
@@ -1482,7 +1482,7 @@ sub_a r = do
         in
             rs
                 & set a res
-                    . clearFlag Negative
+                    . setFlag Negative
                     . set (flag Carry) (orig < val)
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
@@ -1493,12 +1493,12 @@ sub_a_u8 n = do
     modifying' registers $ \rs ->
         let
             orig = rs ^. a
-            res = rs ^. a - n
+            res = orig - n
             needsHalfCarry = orig .&. 0x0f < n .&. 0x0f
         in
             rs
                 & set a res
-                    . clearFlag Negative
+                    . setFlag Negative
                     . set (flag Carry) (orig < n)
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
