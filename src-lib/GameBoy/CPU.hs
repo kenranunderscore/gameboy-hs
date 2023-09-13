@@ -217,6 +217,7 @@ data Instr
     | RLCA
     | RRCA
     | HALT
+    | STOP
 
 instance Show Instr where
     show = \case
@@ -326,6 +327,7 @@ instance Show Instr where
         RLCA -> "RLCA"
         RRCA -> "RRCA"
         HALT -> "HALT"
+        STOP -> "STOP"
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -361,6 +363,7 @@ fetch = do
         0x07 -> pure RLCA
         0x08 -> LD_u16_SP <$> fetchU16M
         0x09 -> pure $ ADD_HL BC
+        0x10 -> advance 1 >> pure STOP -- TODO: check
         0x0a -> pure $ LD_A_deref BC
         0x0b -> pure $ DEC16 BC
         0x0c -> pure $ INC C
@@ -1597,6 +1600,9 @@ execute = \case
         pure 4
     HALT -> do
         assign' halted True
+        pure 4
+    STOP ->
+        -- TODO
         pure 4
 
 daa :: GameBoy m => m Int
