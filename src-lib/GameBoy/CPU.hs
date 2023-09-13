@@ -211,6 +211,7 @@ data Instr
     | SLA_derefHL
     | SRA TargetRegister
     | SRA_derefHL
+    | DAA
 
 instance Show Instr where
     show = \case
@@ -314,6 +315,7 @@ instance Show Instr where
         SLA_derefHL -> "SLA (HL)"
         SRA r -> "SRA " <> show r
         SRA_derefHL -> "SRA (HL)"
+        DAA -> "DAA"
 
 fetchByteM :: GameBoy m => m U8
 fetchByteM = do
@@ -375,6 +377,7 @@ fetch = do
         0x24 -> pure $ INC H
         0x25 -> pure $ DEC H
         0x26 -> LD_u8 H <$> fetchByteM
+        0x27 -> pure DAA
         0x28 -> JR_cc ZSet <$> fetchI8M
         0x29 -> pure $ ADD_HL HL
         0x2a -> pure LD_A_HLplus
@@ -1527,6 +1530,34 @@ execute = \case
                 . clearFlag HalfCarry
                 . clearFlag Negative
         pure 16
+    DAA ->
+        daa
+
+daa :: GameBoy m => m Int
+daa = do
+    modify' $ \s ->
+        let
+            orig = s ^. registers % a
+            halfCarry = hasFlag HalfCarry s
+            carry = hasFlag Carry s
+            negative = hasFlag Negative s
+            u =
+                if halfCarry || (not negative && (orig .&. 0xf) > 9)
+                    then 6
+                    else 0
+            (u', setCarry) =
+                if carry || not negative && orig > 0x99
+                    then (u .|. 0x60, True)
+                    else (u, False)
+            res = orig + if negative then (-u') else u'
+        in
+            s
+                & registers
+                    %!~ set a res
+                    . set (flag Zero) (res == 0)
+                    . set (flag Carry) setCarry
+                    . clearFlag HalfCarry
+    pure 4
 
 add_hl :: GameBoy m => Lens' Registers U16 -> m Int
 add_hl rr = do
