@@ -54,16 +54,12 @@ af = combineRegisters a f
 {- FOURMOLU_DISABLE -}
 instance Show Registers where
     show r = mconcat
-        [ "A  = " , toHex (view a r)
-        , "\nF  = " , toHex (view f r)
-        , "\nB  = " , toHex (view b r)
-        , "\nC  = " , toHex (view c r) , "    BC = " , toHex (view bc r)
-        , "\nD  = " , toHex (view d r)
-        , "\nE  = " , toHex (view e r) , "    DE = " , toHex (view de r)
-        , "\nH  = " , toHex (view h r)
-        , "\nL  = " , toHex (view l r) , "    HL = " , toHex (view hl r)
-        , "\nPC = " , toHex (view pc r)
-        , "\nSP = " , toHex (view sp r)
+        [ "AF = " , toHex (view af r)
+        , " | BC = " , toHex (view bc r)
+        , " | DE = " , toHex (view de r)
+        , " | HL = " , toHex (view hl r)
+        , " | PC = " , toHex (view pc r)
+        , " | SP = " , toHex (view sp r)
         ]
 {- FOURMOLU_ENABLE -}
 
