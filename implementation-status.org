@@ -1,9 +1,9 @@
 #+title: State of the implementation
 
-* CPU instruction checks [10/11]
+* CPU instruction checks [11/11]
 - [X] 01-special
 - [X] 02-interrupts: out-of-bounds error
-- [ ] 03-op sp,hl: hangs
+- [X] 03-op sp,hl: hangs
 - [X] 04-op r,imm
 - [X] 05-op rp
 - [X] 06-ld r,r

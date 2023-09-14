@@ -9,7 +9,7 @@ module GameBoy.CPU where
 
 import Control.Monad
 import Control.Monad.State.Strict
-import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
+import Data.Bits ((.&.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
 import Debug.Trace
 import Optics
@@ -1042,7 +1042,7 @@ execute = \case
         writeMemory (rs ^. hl) (rs ^. targetL r)
         pure 8
     LD_SP_HL -> do
-        modifying registers $ \rs ->
+        modifying' registers $ \rs ->
             rs & set sp (view hl rs)
         pure 8
     LD_HL_SP n -> do
@@ -1051,15 +1051,15 @@ execute = \case
                 orig = rs ^. sp
                 res' = fromIntegral @_ @I32 orig + fromIntegral n
                 res = fromIntegral res'
-                needsHalfCarry = toU8 n .&. 0x0f + fromIntegral (orig .&. 0x0f) > 0x0f
-                needsCarry = res' .&. 0xffff0000 > 0 -- FIXME
+                needsHalfCarry = toU8 orig .&. 0xf + toU8 n .&. 0xf > 0xf
+                needsCarry = orig .&. 0xff + toU16 (toU8 n) > 0xff
             in
                 rs
                     & hl !~ res
                     & clearFlag Zero
                     & clearFlag Negative
                     & set (flag HalfCarry) needsHalfCarry
-                    & set (flag Carry) (res' > 0xff)
+                    & set (flag Carry) needsCarry
         pure 12
     BIT n r -> do
         modify' $ \s ->
@@ -1148,7 +1148,7 @@ execute = \case
         modifying' (registers % (target16L r)) (+ 1)
         pure 8
     INC_SP -> do
-        modifying' (registers % sp) (+ 1)
+        modifying' stackPointer (+ 1)
         pure 8
     DEC r ->
         dec (targetL r)
@@ -1156,7 +1156,7 @@ execute = \case
         modifying' (registers % (target16L r)) (\n -> n - 1)
         pure 8
     DEC_SP -> do
-        modifying' (registers % sp) (\n -> n - 1)
+        modifying' stackPointer (\n -> n - 1)
         pure 8
     DEC_derefHL -> do
         s <- get
@@ -1243,22 +1243,8 @@ execute = \case
         add_hl (target16L rr)
     ADD_HL_SP ->
         add_hl sp
-    ADD_SP n -> do
-        modifying' registers $ \rs ->
-            let
-                orig = rs._sp
-                res' = fromIntegral @_ @I32 orig + fromIntegral n
-                res = fromIntegral res
-                needsCarry = res' .&. 0xffff0000 > 0
-                needsHalfCarry = res' .&. 0xffff0000 > 0
-            in
-                rs
-                    & clearFlag Negative
-                        . clearFlag Zero
-                        . set (flag Carry) needsCarry
-                        . set (flag HalfCarry) needsHalfCarry
-                        . set sp res
-        pure 16
+    ADD_SP n ->
+        add_sp n
     SUB r ->
         sub_a r
     SUB_u8 n ->
@@ -1331,7 +1317,7 @@ execute = \case
             )
         pure 16
     RES n r -> do
-        modifying (registers % targetL r) (`Bits.clearBit` n)
+        modifying' (registers % targetL r) (`Bits.clearBit` n)
         pure 8
     RES_derefHL n -> do
         s <- get
@@ -1343,7 +1329,7 @@ execute = \case
         writeMemory addr res
         pure 16
     SET n r -> do
-        modifying (registers % targetL r) (`Bits.setBit` n)
+        modifying' (registers % targetL r) (`Bits.setBit` n)
         pure 8
     SET_derefHL n -> do
         s <- get
@@ -1605,6 +1591,28 @@ execute = \case
         -- TODO
         pure 4
 
+add_sp :: GameBoy m => I8 -> m Int
+add_sp n = do
+    modifying' registers $ \rs ->
+        let (res, needsHalfCarry, needsCarry) = add_spPure rs._sp n
+        in rs
+            & clearFlag Negative
+                . clearFlag Zero
+                . set (flag HalfCarry) needsHalfCarry
+                . set (flag Carry) needsCarry
+                . set sp res
+    pure 16
+
+add_spPure :: U16 -> I8 -> (U16, Bool, Bool)
+add_spPure orig n =
+    let
+        n' = toU8 n
+        res' = fromIntegral @_ @I32 orig + fromIntegral n
+        needsHalfCarry = toU8 (orig .&. 0xf) + n' .&. 0xf > 0xf
+        needsCarry = orig .&. 0xff + toU16 n' > 0xff
+    in
+        (fromIntegral res', needsHalfCarry, needsCarry)
+
 daa :: GameBoy m => m Int
 daa = do
     modify' $ \s ->
@@ -1633,14 +1641,14 @@ daa = do
 
 add_hl :: GameBoy m => Lens' Registers U16 -> m Int
 add_hl rr = do
-    modifying registers $ \rs ->
+    modifying' registers $ \rs ->
         let
             orig = view hl rs
             val = view rr rs
             res' = fromIntegral @_ @U32 orig + fromIntegral val
             res = fromIntegral res'
             needsCarry = res' > 0xffff
-            needsHalfCarry = orig .&. 0x0fff + val .&. 0x0fff > 0x0fff
+            needsHalfCarry = fromIntegral val .&. 0xfff > res' .&. 0xfff
         in
             rs
                 & hl !~ res
