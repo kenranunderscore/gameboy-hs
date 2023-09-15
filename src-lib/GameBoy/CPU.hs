@@ -1587,8 +1587,8 @@ execute = \case
     HALT -> do
         assign' halted True
         pure 4
-    STOP ->
-        -- TODO
+    STOP -> do
+        assign' halted True
         pure 4
 
 add_sp :: GameBoy m => I8 -> m Int
