@@ -19,10 +19,12 @@ import GameBoy.Render qualified as Render
 import GameBoy.State
 
 maxCyclesPerFrame :: Int
-maxCyclesPerFrame = 69_905
+maxCyclesPerFrame = 4_194_304 `div` 60
 
 mainLoop :: (MonadIO m, GameBoy m) => IORef InMemoryScreen -> m ()
 mainLoop scrRef = forever $ do
+    -- TODO: it feels wrong to start at 0 here
+    -- shouldn't we use the superfluous cycles from the frame before?
     oneFrame 0
     liftIO $ putStrLn "    [FRAME FINISHED]"
     fullBG <- snapshotBackgroundArea
@@ -33,13 +35,11 @@ mainLoop scrRef = forever $ do
         s <- get
         cycles <-
             if not $ s ^. halted
-                then
-                    ( do
-                        instr <- fetch
-                        cycles <- execute instr
-                        liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
-                        pure cycles
-                    )
+                then do
+                    instr <- fetch
+                    cycles <- execute instr
+                    -- liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+                    pure cycles
                 else do
                     liftIO $ putStrLn "  [HALT]"
                     when (s ^. memoryBus % interruptFlags > 0) $

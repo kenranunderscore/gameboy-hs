@@ -369,7 +369,7 @@ fetch = do
         0x0d -> pure $ DEC C
         0x0e -> LD_u8 C <$> fetchByteM
         0x0f -> pure RRCA
-        0x10 -> pure STOP -- TODO: check; always expects NOP after
+        0x10 -> advance 1 >> pure STOP
         0x11 -> LD_u16 DE <$> fetchU16M
         0x12 -> pure $ LD_deref_rr_A DE
         0x13 -> pure $ INC16 DE
@@ -1597,10 +1597,10 @@ execute = \case
         pure 4
     HALT -> do
         assign' halted True
-        pure 4
+        pure 0
     STOP -> do
         assign' halted True
-        pure 4
+        pure 0
 
 add_sp :: GameBoy m => I8 -> m Int
 add_sp n = do
