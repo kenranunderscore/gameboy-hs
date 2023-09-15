@@ -869,6 +869,9 @@ fetchPrefixed = do
 writeMemory :: GameBoy m => U16 -> U8 -> m ()
 writeMemory addr n =
     case addr of
+        0xff04 -> do
+            -- reset divider when trying to write to it
+            modifying' memoryBus (writeByte addr 0)
         0xff44 -> do
             -- reset scanline if the CPU writes to it
             modifying' memoryBus (writeByte addr 0)
