@@ -25,6 +25,7 @@ tests =
         , stackTests
         , determinePixelColorsTests
         , determineTileAddressTests
+        , add_spTests
         , testCase "combineBytes" $ combineBytes 0x9a 0x3f @?= 0x9a3f
         , testCase "splitIntoBytes with low byte only" $ splitIntoBytes 0x001f @?= (0, 0x1f)
         , testCase "splitIntoBytes with high byte only" $ splitIntoBytes 0xe200 @?= (0xe2, 0)
@@ -111,4 +112,28 @@ determineTileAddressTests =
             toHex (determineTileAddress 2 Mode8800) @?= "$9020"
         , testCase "handles 8800 addressing mode with overflowing tile identifier" $
             toHex (determineTileAddress 255 Mode8800) @?= "$8ff0"
+        ]
+
+add_spTests :: TestTree
+add_spTests =
+    testGroup
+        "add_sp"
+        [ testCase "n positive, no overflow" $
+            let res = add_spPure 0x5 0x3
+            in res @?= (0x8, False, False)
+        , testCase "n positive, overflow in lower nibble" $
+            let res = add_spPure 0xf 0x1
+            in res @?= (0x10, True, False)
+        , testCase "n positive, overflow in lower byte" $
+            let res = add_spPure 0xf0 0x10
+            in res @?= (0x100, False, True)
+        , testCase "n positive, overflow in lower byte and nibble" $
+            let res = add_spPure 0xff 0x1
+            in res @?= (0x100, True, True)
+        , testCase "n negative, no overflow" $
+            let res = add_spPure 0x1 (-0x3)
+            in res @?= (0xfffe, False, False)
+        , testCase "n negative, overflow in lower byte and nibble" $
+            let res = add_spPure 0x5 (-0x3)
+            in res @?= (0x2, True, True)
         ]
