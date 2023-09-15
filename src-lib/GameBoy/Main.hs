@@ -51,8 +51,8 @@ mainLoop scrRef = forever $ do
         -- dumpRegisters
         void $ updateTimers cycles
         void $ updateGraphics cycles
-        void $ handleInterrupts
-        oneFrame (n + cycles)
+        interruptCycles <- handleInterrupts
+        oneFrame (n + cycles + interruptCycles)
     snapshotBackgroundArea = do
         bus <- use memoryBus
         let

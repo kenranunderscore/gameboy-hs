@@ -1983,25 +1983,35 @@ counterFromFrequency = \case
 timerFrequency :: Getter MemoryBus TimerFrequency
 timerFrequency = tac % to readTimerFrequency
 
-handleInterrupts :: GameBoy m => m ()
+handleInterrupts :: GameBoy m => m Int
 handleInterrupts = do
     s <- get
-    when (view masterInterruptEnable s) $ do
-        let
-            enabledInterrupts = s ^. memoryBus % ie
-            requestedInterrupts = s ^. memoryBus % interruptFlags
-        when (requestedInterrupts > 0) $
-            forM_ [0 .. 4] $ \interrupt ->
-                when (requestedInterrupts ^. bit interrupt) $ do
-                    when (enabledInterrupts ^. bit interrupt) $ do
-                        handleInterrupt interrupt
+    if view masterInterruptEnable s
+        then do
+            let
+                enabledInterrupts = s ^. memoryBus % ie
+                requestedInterrupts = s ^. memoryBus % interruptFlags
+            case findInterrupt (filter (Bits.testBit requestedInterrupts) [0 .. 4]) enabledInterrupts of
+                Nothing -> pure 0
+                Just interrupt -> do
+                    handleInterrupt interrupt
+                    pure 20
+        else -- TODO: check whether 0 is correct; shouldn't it take cycles to
+        -- check memory?
+            pure 0
   where
+    findInterrupt requestedInterrupts enabledInterrupts =
+        case requestedInterrupts of
+            [] -> Nothing
+            (x : xs) ->
+                if Bits.testBit enabledInterrupts x
+                    then Just x
+                    else findInterrupt xs enabledInterrupts
     handleInterrupt interrupt = do
         assign' masterInterruptEnable False
         assign' (memoryBus % interruptFlags % bit interrupt) False
         counter <- use programCounter
         push counter
-        -- TODO: check whether I have to execute 2 NOPs
         case interrupt of
             0 -> assign' programCounter 0x40 -- VBlank
             1 -> assign' programCounter 0x48 -- LCD stat
