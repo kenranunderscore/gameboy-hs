@@ -21,6 +21,7 @@ import GameBoy.Memory
 import GameBoy.State
 
 data TileMapArea = Area9800 | Area9C00
+    deriving (Show)
 
 tileMapAreaIso :: Iso' Bool TileMapArea
 tileMapAreaIso =
@@ -32,6 +33,7 @@ windowTileMapArea :: Lens' MemoryBus TileMapArea
 windowTileMapArea = lcdc % bit 6 % tileMapAreaIso
 
 data AddressingMode = Mode8000 | Mode8800
+    deriving (Show)
 
 addressingModeIso :: Iso' Bool AddressingMode
 addressingModeIso =
