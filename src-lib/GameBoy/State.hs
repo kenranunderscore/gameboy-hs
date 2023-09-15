@@ -96,14 +96,14 @@ mkInitialState bus =
   where
     initialRegisters =
         Registers
-            { _a = 0
+            { _a = 0x1
             , _b = 0
-            , _c = 0
+            , _c = 0x13
             , _d = 0
-            , _e = 0
-            , _h = 0
-            , _l = 0
-            , _f = 0
+            , _e = 0xd8
+            , _h = 0x1
+            , _l = 0x4d
+            , _f = 0xb0
             , _pc = 0x100 -- start without BIOS for now
             , _sp = 0xfffe
             }
