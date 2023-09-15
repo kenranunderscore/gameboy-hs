@@ -363,13 +363,13 @@ fetch = do
         0x07 -> pure RLCA
         0x08 -> LD_u16_SP <$> fetchU16M
         0x09 -> pure $ ADD_HL BC
-        0x10 -> advance 1 >> pure STOP -- TODO: check
         0x0a -> pure $ LD_A_deref BC
         0x0b -> pure $ DEC16 BC
         0x0c -> pure $ INC C
         0x0d -> pure $ DEC C
         0x0e -> LD_u8 C <$> fetchByteM
         0x0f -> pure RRCA
+        0x10 -> pure STOP -- TODO: check; always expects NOP after
         0x11 -> LD_u16 DE <$> fetchU16M
         0x12 -> pure $ LD_deref_rr_A DE
         0x13 -> pure $ INC16 DE
@@ -575,8 +575,8 @@ fetch = do
         0xde -> SBC_u8 <$> fetchByteM
         0xdf -> pure $ RST Rst18
         0xe0 -> LD_FF00plusU8_A <$> fetchByteM
-        0xe2 -> pure LD_FF00plusC_A
         0xe1 -> pure $ POP HL
+        0xe2 -> pure LD_FF00plusC_A
         0xe5 -> pure $ PUSH HL
         0xe6 -> AND_u8 <$> fetchByteM
         0xe7 -> pure $ RST Rst20
@@ -955,6 +955,10 @@ execute = \case
     LD_u16 rr n -> do
         assign' (registers % target16L rr) n
         pure 12
+    LD_deref_rr_A rr -> do
+        rs <- use registers
+        writeMemory (rs ^. target16L rr) (rs ^. a)
+        pure 8
     LD_SP_u16 n -> do
         assign' (registers % sp) n
         pure 12
@@ -1036,10 +1040,6 @@ execute = \case
         s <- get
         writeMemory (0xff00 + fromIntegral n) (s ^. registers % a)
         pure 12
-    LD_deref_rr_A rr -> do
-        rs <- use registers
-        writeMemory (rs ^. target16L rr) (rs ^. a)
-        pure 8
     LD_derefHL r -> do
         rs <- use registers
         writeMemory (rs ^. hl) (rs ^. targetL r)
@@ -1086,27 +1086,31 @@ execute = \case
         modifying' programCounter (+ fromIntegral n)
         pure 12
     JR_cc cond n -> do
-        modify' $ \s ->
-            if checkFlagCondition cond s
-                then s & programCounter %!~ (+ fromIntegral n)
-                else s
-        pure 12
+        jump <- gets (checkFlagCondition cond)
+        if jump
+            then do
+                modifying' programCounter (+ fromIntegral n)
+                pure 16
+            else pure 12
     JP_cc cond n -> do
-        modify' $ \s ->
-            if checkFlagCondition cond s
-                then s & programCounter !~ n
-                else s
-        pure 12
+        jump <- gets (checkFlagCondition cond)
+        if jump
+            then do
+                assign' programCounter n
+                pure 16
+            else pure 12
     RET -> do
         addr <- pop
         assign' programCounter addr
         pure 16
     RET_cc cond -> do
-        s <- get
-        when (checkFlagCondition cond s) $ do
-            addr <- pop
-            assign' programCounter addr
-        pure 16
+        jump <- gets (checkFlagCondition cond)
+        if jump
+            then do
+                addr <- pop
+                assign' programCounter addr
+                pure 20
+            else pure 8
     RETI -> do
         addr <- pop
         assign' programCounter addr
@@ -1119,11 +1123,13 @@ execute = \case
         pure 24
     CALL_cc cond n -> do
         s <- get
-        when (checkFlagCondition cond s) $ do
-            let counter = view programCounter s
-            push counter
-            assign' programCounter n
-        pure 24
+        if (checkFlagCondition cond s)
+            then do
+                let counter = view programCounter s
+                push counter
+                assign' programCounter n
+                pure 24
+            else pure 12
     JP n -> do
         assign' programCounter n
         pure 16
@@ -1147,16 +1153,16 @@ execute = \case
                 . set (flag HalfCarry) (val .&. 0xf == 0)
             )
         pure 12
-    INC16 r -> do
-        modifying' (registers % (target16L r)) (+ 1)
+    INC16 rr -> do
+        modifying' (registers % (target16L rr)) (+ 1)
         pure 8
     INC_SP -> do
         modifying' stackPointer (+ 1)
         pure 8
     DEC r ->
         dec (targetL r)
-    DEC16 r -> do
-        modifying' (registers % (target16L r)) (\n -> n - 1)
+    DEC16 rr -> do
+        modifying' (registers % (target16L rr)) (\n -> n - 1)
         pure 8
     DEC_SP -> do
         modifying' stackPointer (\n -> n - 1)
@@ -1220,10 +1226,12 @@ execute = \case
                         . clearFlag Negative
                         . set a a'
         pure 4
-    DI ->
-        assign' masterInterruptEnable False >> pure 4
-    EI ->
-        assign' masterInterruptEnable True >> pure 4
+    DI -> do
+        assign' masterInterruptEnable False
+        pure 4
+    EI -> do
+        assign' masterInterruptEnable True
+        pure 4
     OR r ->
         or_a r
     OR_u8 n ->
