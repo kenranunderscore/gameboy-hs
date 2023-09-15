@@ -1963,7 +1963,7 @@ data TimerFrequency
     | Freq16K
     | Freq64K
     | Freq256K
-    deriving (Eq)
+    deriving (Eq, Show)
 
 readTimerFrequency :: U8 -> TimerFrequency
 readTimerFrequency n =
