@@ -10,6 +10,7 @@ import Data.IORef
 import Data.Vector qualified as Vector
 import Optics
 import System.Environment qualified as Environment
+import System.IO
 
 import GameBoy.BitStuff
 import GameBoy.CPU
@@ -85,6 +86,8 @@ mainLoop scrRef = forever $ do
 
 main :: IO ()
 main = do
+    hSetBuffering stdout LineBuffering
+    hSetBuffering stderr LineBuffering
     args <- Environment.getArgs
     case args of
         [] -> fail "need path to ROM as first argument"
