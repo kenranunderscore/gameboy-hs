@@ -123,8 +123,8 @@ readScanlineColors bus =
         currentLine = bus ^. scanline
         useWindow = view displayWindow bus && wy <= currentLine
         tileMapStart = determineTileMapAddr useWindow
-        ypos :: U16 = if useWindow then fromIntegral currentLine - fromIntegral wy else fromIntegral currentLine + fromIntegral y
-        vertTileIndexOffset = (ypos .>>. 3) .<<. 5
+        ypos = if useWindow then currentLine - wy else currentLine + y
+        vertTileIndexOffset = (toU16 ypos .>>. 3) .<<. 5
         currentPalette = bus ^. bgPalette
     in
         -- TODO: "preload" only the necessary tiles, _then_ loop
@@ -192,9 +192,6 @@ setLcdStatus = do
             when (newMode /= oldMode && newMode == 3) $ do
                 bus <- use memoryBus
                 let scanlineColors = readScanlineColors bus
-                -- traceM $ " MODIFYING SCANLINE: " <> show scanlineColors._index
-                traceM $ "      MODE: " <> show (view addressingMode bus)
-                traceM $ "      MAP: " <> show (view bgTileMapArea bus)
                 modifying'
                     screen
                     ( Vector.//
@@ -233,10 +230,7 @@ updateGraphics cycles = do
                 modifying' scanlineCounter (+ 456)
                 modifying' (memoryBus % scanline) (+ 1)
                 line <- use (memoryBus % scanline)
-                traceM $ " SCANLINE == " <> show line
                 if
-                    -- scr <- use screen
-                    -- traceShowM scr
                     | line == 144 -> do
                         prepared <- use screen
                         assign' preparedScreen prepared
