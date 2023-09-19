@@ -14,7 +14,7 @@ import SDL qualified
 
 import GameBoy.State (InMemoryScreen)
 
-tileSize = 4
+tileSize = 10
 
 renderScreen :: MonadIO m => SDL.Renderer -> InMemoryScreen -> m ()
 renderScreen renderer scr = do
@@ -36,10 +36,10 @@ renderScreen renderer scr = do
     SDL.present renderer
   where
     getColor = \case
-        0 -> SDL.V4 230 230 230 0xff
-        1 -> SDL.V4 120 0 0 0xff
-        2 -> SDL.V4 0 120 0 0xff
-        3 -> SDL.V4 0 0 120 0xff
+        0 -> SDL.V4 155 188 15 0xff
+        1 -> SDL.V4 139 172 15 0xff
+        2 -> SDL.V4 48 98 48 0xff
+        3 -> SDL.V4 15 56 15 0xff
         _ -> error "impossible color"
 
 runGraphics :: IORef InMemoryScreen -> IO ()
