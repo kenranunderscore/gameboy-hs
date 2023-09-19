@@ -107,8 +107,8 @@ lcdEnable = lcdc % bit 7
 displayWindow :: Lens' MemoryBus Bool
 displayWindow = lcdc % bit 5
 
-objSize :: Lens' MemoryBus Bool
-objSize = lcdc % bit 2
+spriteUsesTwoTiles :: Lens' MemoryBus Bool
+spriteUsesTwoTiles = lcdc % bit 2
 
 objEnabled :: Lens' MemoryBus Bool
 objEnabled = lcdc % bit 1

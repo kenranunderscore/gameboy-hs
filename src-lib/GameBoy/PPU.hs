@@ -14,7 +14,6 @@ import Data.Bits qualified as Bits
 import Data.Int (Int32)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
@@ -178,6 +177,57 @@ determineNextLcdStatus counter line status =
             , Bits.clearBit (Bits.clearBit status 0) 1
             )
 
+drawScanline :: GameBoy m => m ()
+drawScanline = do
+    bus <- use memoryBus
+    let scanlineColors = readScanlineColors bus
+    modifying'
+        screen
+        ( Vector.//
+            [(scanlineColors._index, scanlineColors._colors)]
+        )
+
+drawSprites :: GameBoy m => m ()
+drawSprites = do
+    bus <- use memoryBus
+    when (bus ^. objEnabled) $ do
+        forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
+            let
+                spriteIndex = sprite * 4 -- 4 bytes per sprite
+                x = bus ^. oam % byte spriteIndex - 16
+                y = bus ^. oam % byte (spriteIndex + 1) - 8
+                tileOffset = bus ^. oam % byte (spriteIndex + 2)
+                attrs = bus ^. oam % byte (spriteIndex + 3)
+                -- TODO: flip
+                currentLine = fromIntegral $ bus ^. scanline
+                height = if (bus ^. spriteUsesTwoTiles) then 16 else 8
+                line = currentLine - y
+            when (currentLine >= y && currentLine < y + height) $ do
+                -- TODO: color palettes and transparency
+                let
+                    tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
+                    tile = readTile bus tileMemStart
+                    dummyPalette = readByte bus 0xff49
+                modifying'
+                    screen
+                    ( \scr ->
+                        let
+                            tileRow = tile Vector.! fromIntegral line
+                            v = scr Vector.! fromIntegral currentLine
+                            v' =
+                                v
+                                    Vector.// ( fmap
+                                                    ( \i ->
+                                                        ( fromIntegral x + i
+                                                        , fmap (translateTileColors dummyPalette) tileRow Vector.! i
+                                                        )
+                                                    )
+                                                    [0 .. 7]
+                                              )
+                        in
+                            scr Vector.// [(fromIntegral currentLine, v')]
+                    )
+
 setLcdStatus :: GameBoy m => m ()
 setLcdStatus = do
     s <- get
@@ -190,13 +240,9 @@ setLcdStatus = do
                 (newMode, needStatInterrupt, newStatus) =
                     determineNextLcdStatus (s ^. scanlineCounter) line status
             when (newMode /= oldMode && newMode == 3) $ do
-                bus <- use memoryBus
-                let scanlineColors = readScanlineColors bus
-                modifying'
-                    screen
-                    ( Vector.//
-                        [(scanlineColors._index, scanlineColors._colors)]
-                    )
+                -- FIXME/TODO: check BG priority here!
+                drawScanline
+                drawSprites
             when (needStatInterrupt && newMode /= oldMode) $
                 assign' (memoryBus % interruptFlags % bit 1) True
             compareValue <- use (memoryBus % lyc)
@@ -237,6 +283,5 @@ updateGraphics cycles = do
                         assign' screen emptyScreen
                         assign' (memoryBus % interruptFlags % bit 0) True
                     | line > 153 -> do
-                        -- FIXME wrong line constant
                         assign' (memoryBus % scanline) 0
                     | otherwise -> pure ()

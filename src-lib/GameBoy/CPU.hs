@@ -942,7 +942,8 @@ writeMemory addr n =
             -- reset scanline if the CPU writes to it
             modifying' memoryBus (writeByte addr 0)
         0xff46 ->
-            trace ("    [DMA TRANSFER] : " <> toHex n) (dmaTransfer n)
+            -- trace ("    [DMA TRANSFER] : " <> toHex n) (dmaTransfer n)
+            dmaTransfer n
         -- HACK: "listen" for changes that potentially cascade to other state
         -- changes here
         0xff07 -> do
@@ -1983,7 +1984,7 @@ handleInterrupts = do
                     then Just x
                     else findInterrupt xs enabledInterrupts
     handleInterrupt interrupt = do
-        traceM $ "      INTERRUPT " <> show interrupt
+        -- traceM $ "      INTERRUPT " <> show interrupt
         assign' masterInterruptEnable False
         assign' (memoryBus % interruptFlags % bit interrupt) False
         counter <- use programCounter
