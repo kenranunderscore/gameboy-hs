@@ -77,8 +77,8 @@ withSdl =
 
 withSdlWindow :: (SDL.Window -> IO a) -> IO a
 withSdlWindow action = do
-    -- let windowConfig = SDL.defaultWindow{SDL.windowInitialSize = SDL.V2 (160 * tileSize) (144 * tileSize)}
-    let windowConfig = SDL.defaultWindow{SDL.windowInitialSize = SDL.V2 (255 * tileSize) (255 * tileSize)}
+    let windowConfig = SDL.defaultWindow{SDL.windowInitialSize = SDL.V2 (160 * tileSize) (144 * tileSize)}
+    -- let windowConfig = SDL.defaultWindow{SDL.windowInitialSize = SDL.V2 (255 * tileSize) (255 * tileSize)}
     Exception.bracket
         (SDL.createWindow "GameBoy emulator" windowConfig)
         ( \w -> do

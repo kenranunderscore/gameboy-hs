@@ -14,6 +14,7 @@ import Data.Bits qualified as Bits
 import Data.Int (Int32)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
@@ -57,30 +58,6 @@ priorityIso =
 
 bgWindowMasterPriority :: Lens' MemoryBus Priority
 bgWindowMasterPriority = lcdc % bit 0 % priorityIso
-
-determineNextLcdStatus :: Int -> U8 -> U8 -> (U8, Bool, U8)
-determineNextLcdStatus counter line status =
-    if
-        | line >= 144 ->
-            ( 1
-            , Bits.testBit status 4
-            , Bits.setBit (Bits.clearBit status 1) 0
-            )
-        | counter >= 456 - 80 ->
-            ( 2
-            , Bits.testBit status 5
-            , Bits.setBit (Bits.clearBit status 0) 1
-            )
-        | counter >= 456 - 80 - 172 ->
-            ( 3
-            , False
-            , Bits.setBit (Bits.setBit status 0) 1
-            )
-        | otherwise ->
-            ( 0
-            , Bits.testBit status 3
-            , Bits.clearBit (Bits.clearBit status 0) 1
-            )
 
 data Color = Color0 | Color1 | Color2 | Color3
     deriving (Eq, Show, Enum)
@@ -146,7 +123,7 @@ readScanlineColors bus =
         currentLine = bus ^. scanline
         useWindow = view displayWindow bus && wy <= currentLine
         tileMapStart = determineTileMapAddr useWindow
-        ypos = if useWindow then currentLine - wy else currentLine + y
+        ypos :: U16 = if useWindow then fromIntegral currentLine - fromIntegral wy else fromIntegral currentLine + fromIntegral y
         vertTileIndexOffset = (ypos .>>. 3) .<<. 5
         currentPalette = bus ^. bgPalette
     in
@@ -157,7 +134,7 @@ readScanlineColors bus =
                     let
                         xpos = if useWindow && i >= wx then i - wx else x + i
                         horTileIndex = xpos .>>. 3
-                        tileIdentifierAddr = tileMapStart + fromIntegral vertTileIndexOffset + fromIntegral horTileIndex
+                        tileIdentifierAddr = tileMapStart + vertTileIndexOffset + fromIntegral horTileIndex
                         tileIdentifier = readByte bus tileIdentifierAddr
                         tileAddr = determineTileAddress tileIdentifier mode
                         rowIndex = ypos `mod` 8
@@ -177,19 +154,53 @@ readScanlineColors bus =
         Area9800 -> 0x9800
         Area9C00 -> 0x9C00
 
+determineNextLcdStatus :: Int -> U8 -> U8 -> (U8, Bool, U8)
+determineNextLcdStatus counter line status =
+    if
+        | line >= 144 ->
+            ( 1
+            , Bits.testBit status 4
+            , Bits.setBit (Bits.clearBit status 1) 0
+            )
+        | counter >= 456 - 80 ->
+            ( 2
+            , Bits.testBit status 5
+            , Bits.setBit (Bits.clearBit status 0) 1
+            )
+        | counter >= 456 - 80 - 172 ->
+            ( 3
+            , False
+            , Bits.setBit (Bits.setBit status 0) 1
+            )
+        | otherwise ->
+            ( 0
+            , Bits.testBit status 3
+            , Bits.clearBit (Bits.clearBit status 0) 1
+            )
+
 setLcdStatus :: GameBoy m => m ()
 setLcdStatus = do
     s <- get
     let status = s ^. memoryBus % lcdStatus
-    if s ^. memoryBus % lcdEnable
+    if s ^. memoryBus % lcdEnable -- TODO: check status instead
         then do
             let
                 line = s ^. memoryBus % scanline
                 oldMode = (s ^. memoryBus % lcdStatus) .&. 0b11
                 (newMode, needStatInterrupt, newStatus) =
                     determineNextLcdStatus (s ^. scanlineCounter) line status
+            when (newMode /= oldMode && newMode == 3) $ do
+                bus <- use memoryBus
+                let scanlineColors = readScanlineColors bus
+                -- traceM $ " MODIFYING SCANLINE: " <> show scanlineColors._index
+                traceM $ "      MODE: " <> show (view addressingMode bus)
+                traceM $ "      MAP: " <> show (view bgTileMapArea bus)
+                modifying'
+                    screen
+                    ( Vector.//
+                        [(scanlineColors._index, scanlineColors._colors)]
+                    )
             when (needStatInterrupt && newMode /= oldMode) $
-                -- FIXME: actually set the mode?
                 assign' (memoryBus % interruptFlags % bit 1) True
             compareValue <- use (memoryBus % lyc)
             -- coincidence check
@@ -201,6 +212,8 @@ setLcdStatus = do
                     assign' (memoryBus % lcdStatus) finalStatus
                 else assign' (memoryBus % lcdStatus) (Bits.clearBit newStatus 2)
         else do
+            assign' screen emptyScreen
+            assign' preparedScreen emptyScreen
             assign' scanlineCounter 456
             assign' (memoryBus % scanline) 0
             -- TODO refactor mode reading/setting
@@ -217,20 +230,19 @@ updateGraphics cycles = do
         if counter > 0
             then assign' scanlineCounter counter
             else do
-                assign' scanlineCounter 456
+                modifying' scanlineCounter (+ 456)
                 modifying' (memoryBus % scanline) (+ 1)
                 line <- use (memoryBus % scanline)
+                traceM $ " SCANLINE == " <> show line
                 if
-                    | line < 144 -> do
-                        bus <- use memoryBus
-                        let scanlineColors = readScanlineColors bus
-                        modifying'
-                            screen
-                            ( Vector.//
-                                [(scanlineColors._index, scanlineColors._colors)]
-                            )
-                    | line == 144 ->
+                    -- scr <- use screen
+                    -- traceShowM scr
+                    | line == 144 -> do
+                        prepared <- use screen
+                        assign' preparedScreen prepared
+                        assign' screen emptyScreen
                         assign' (memoryBus % interruptFlags % bit 0) True
-                    | line > 153 ->
+                    | line > 153 -> do
+                        -- FIXME wrong line constant
                         assign' (memoryBus % scanline) 0
                     | otherwise -> pure ()

@@ -1915,7 +1915,6 @@ updateTimers cycles = do
     when (s ^. memoryBus % timerEnable) $ do
         let counter' = view timerCounter s - cycles
         assign' timerCounter counter'
-        traceShowM counter'
         when (counter' <= 0) $ do
             freq <- use (memoryBus % timerFrequency)
             assign' timerCounter (counterFromFrequency freq)
@@ -1984,6 +1983,7 @@ handleInterrupts = do
                     then Just x
                     else findInterrupt xs enabledInterrupts
     handleInterrupt interrupt = do
+        traceM $ "      INTERRUPT " <> show interrupt
         assign' masterInterruptEnable False
         assign' (memoryBus % interruptFlags % bit interrupt) False
         counter <- use programCounter

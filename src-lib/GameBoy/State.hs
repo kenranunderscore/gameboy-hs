@@ -78,6 +78,7 @@ data CPUState = CPUState
     , _masterInterruptEnable :: Bool
     , _scanlineCounter :: Int
     , _screen :: InMemoryScreen
+    , _preparedScreen :: InMemoryScreen
     , _halted :: Bool
     }
     deriving stock (Show)
@@ -92,7 +93,7 @@ stackPointer = registers % sp
 
 mkInitialState :: MemoryBus -> CPUState
 mkInitialState bus =
-    CPUState initialRegisters bus 0 1024 True 456 emptyScreen False
+    CPUState initialRegisters bus 0 1024 True 456 emptyScreen emptyScreen False
   where
     initialRegisters =
         Registers

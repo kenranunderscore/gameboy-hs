@@ -6,8 +6,10 @@ module GameBoy.Main (main) where
 import Control.Concurrent.Async qualified as Async
 import Control.Monad
 import Control.Monad.State.Strict
+import Data.Bits qualified as Bits
 import Data.IORef
 import Data.Vector qualified as Vector
+import Debug.Trace
 import Optics
 import System.Environment qualified as Environment
 import System.IO
@@ -29,8 +31,8 @@ mainLoop scrRef = forever $ do
     oneFrame 0
     liftIO $ putStrLn "    [FRAME FINISHED]"
     fullBG <- snapshotBackgroundArea
-    -- scr <- use screen
-    liftIO $ writeIORef scrRef fullBG
+    scr <- use preparedScreen
+    liftIO $ writeIORef scrRef scr
   where
     oneFrame n = when (n < maxCyclesPerFrame) $ do
         s <- get
@@ -40,18 +42,19 @@ mainLoop scrRef = forever $ do
                     instr <- fetch
                     cycles <- execute instr
                     -- liftIO $ putStrLn $ toHex (view programCounter s) <> " :  " <> show instr
+                    -- liftIO $ putStrLn $ " DIV == " <> toHex (view (memoryBus % timers % divider) s `Bits.shiftR` 8)
                     pure cycles
                 else do
                     liftIO $ putStrLn "  [HALT]"
                     when (s ^. memoryBus % interruptFlags > 0) $
                         assign' halted False
                     pure 4
-        -- liftIO $ putStrLn $ " LCDC: " <> toHex (view (memoryBus % lcdc) s)
-        -- liftIO $ putStrLn $ " MODE: " <> show (view (memoryBus % addressingMode) s)
-        -- liftIO $ putStrLn $ " MAP: " <> show (view (memoryBus % bgTileMapArea) s)
-        -- dumpRegisters
-        void $ updateTimers cycles
-        void $ updateGraphics cycles
+        s' <- get
+        -- liftIO $ putStrLn $ "      LCDC: " <> toHex (view (memoryBus % lcdc) s')
+        -- liftIO $ putStrLn $ "      MODE: " <> show (view (memoryBus % addressingMode) s')
+        -- liftIO $ putStrLn $ "      MAP: " <> show (view (memoryBus % bgTileMapArea) s')
+        updateTimers cycles
+        updateGraphics cycles
         interruptCycles <- handleInterrupts
         oneFrame (n + cycles + interruptCycles)
     snapshotBackgroundArea = do
@@ -98,6 +101,3 @@ main = do
                 bus <- initializeMemoryBus cartridgePath
                 void $ execStateT (mainLoop scrRef) (mkInitialState bus)
             void $ Async.waitAnyCancel [graphics, game]
-
-dumpRegisters :: (MonadIO m, GameBoy m) => m ()
-dumpRegisters = use registers >>= liftIO . print
