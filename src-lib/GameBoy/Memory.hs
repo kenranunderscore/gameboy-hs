@@ -6,6 +6,7 @@
 
 module GameBoy.Memory where
 
+import Control.Monad
 import Data.Bits ((.|.))
 import Data.ByteString qualified as BS
 import Data.Vector (Vector)

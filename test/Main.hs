@@ -99,7 +99,7 @@ determinePixelColorsTests =
                 byte1 = 0b10101110
                 byte2 = 0b00110101
                 expected = [Color1, Color0, Color3, Color2, Color1, Color3, Color1, Color2]
-            determinePixelColors byte1 byte2 @?= expected
+            determinePixelColors NoFlip byte1 byte2 @?= expected
         ]
 
 determineTileAddressTests :: TestTree

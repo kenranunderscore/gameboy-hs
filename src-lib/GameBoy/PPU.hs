@@ -61,8 +61,8 @@ bgWindowMasterPriority = lcdc % bit 0 % priorityIso
 data Color = Color0 | Color1 | Color2 | Color3
     deriving (Eq, Show, Enum)
 
-determinePixelColors :: U8 -> U8 -> Vector Color
-determinePixelColors b1 b2 =
+determinePixelColors :: FlipMode -> U8 -> U8 -> Vector Color
+determinePixelColors flipMode b1 b2 =
     fmap
         ( \i ->
             case (Bits.testBit b2 i, Bits.testBit b1 i) of
@@ -71,7 +71,15 @@ determinePixelColors b1 b2 =
                 (True, False) -> Color2
                 (True, True) -> Color3
         )
-        (Vector.fromList $ reverse [0 .. 7])
+        (Vector.fromList is)
+  where
+    is =
+        ( case flipMode of
+            FlipX -> id
+            FlipBoth -> id
+            _ -> reverse
+        )
+            [0 .. 7]
 
 determineTileAddress :: U8 -> AddressingMode -> U16
 determineTileAddress tileIdentifier = \case
@@ -87,15 +95,27 @@ determineTileAddress tileIdentifier = \case
 
 type Tile = Vector (Vector Color)
 
-readTile :: MemoryBus -> U16 -> Tile
-readTile bus addr =
+data FlipMode = FlipX | FlipY | FlipBoth | NoFlip
+    deriving (Show)
+
+readTile :: MemoryBus -> FlipMode -> U16 -> Tile
+readTile bus flipMode addr =
     fmap
         ( \i ->
             determinePixelColors
+                flipMode
                 (readByte bus (addr + 2 * i))
                 (readByte bus (addr + 2 * i + 1))
         )
-        (Vector.fromList [0 .. 7])
+        (Vector.fromList is)
+  where
+    is =
+        ( case flipMode of
+            FlipY -> reverse
+            FlipBoth -> reverse
+            _ -> id
+        )
+            [0 .. 7]
 
 data ScanlineColors = ScanlineColors
     { _index :: Int
@@ -137,7 +157,7 @@ readScanlineColors bus =
                         tileIdentifier = readByte bus tileIdentifierAddr
                         tileAddr = determineTileAddress tileIdentifier mode
                         rowIndex = ypos `mod` 8
-                        tileColors = readTile bus tileAddr Vector.! fromIntegral rowIndex
+                        tileColors = readTile bus NoFlip tileAddr Vector.! fromIntegral rowIndex
                     in
                         translateTileColors currentPalette $!
                             tileColors Vector.! fromIntegral (xpos `mod` 8)
@@ -187,46 +207,53 @@ drawScanline = do
             [(scanlineColors._index, scanlineColors._colors)]
         )
 
+readFlipMode :: U8 -> FlipMode
+readFlipMode spriteAttrs =
+    case (Bits.testBit spriteAttrs 5, Bits.testBit spriteAttrs 6) of
+        (False, False) -> NoFlip
+        (True, False) -> FlipX
+        (False, True) -> FlipY
+        _ -> FlipBoth
+
 drawSprites :: GameBoy m => m ()
 drawSprites = do
     bus <- use memoryBus
-    when (bus ^. objEnabled) $ do
-        forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
+    forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
+        let
+            spriteIndex = sprite * 4 -- 4 bytes per sprite
+            y = bus ^. oam % byte spriteIndex - 16
+            x = bus ^. oam % byte (spriteIndex + 1) - 8
+            tileOffset = bus ^. oam % byte (spriteIndex + 2)
+            attrs = bus ^. oam % byte (spriteIndex + 3)
+            flipMode = readFlipMode attrs
+            currentLine = fromIntegral $ bus ^. scanline
+            height = if (bus ^. spriteUsesTwoTiles) then 16 else 8
+            line = currentLine - y
+        when (line >= 0 && line < height) $ do
+            -- FIXME: transparency!
             let
-                spriteIndex = sprite * 4 -- 4 bytes per sprite
-                x = bus ^. oam % byte spriteIndex - 16
-                y = bus ^. oam % byte (spriteIndex + 1) - 8
-                tileOffset = bus ^. oam % byte (spriteIndex + 2)
-                attrs = bus ^. oam % byte (spriteIndex + 3)
-                -- TODO: flip
-                currentLine = fromIntegral $ bus ^. scanline
-                height = if (bus ^. spriteUsesTwoTiles) then 16 else 8
-                line = currentLine - y
-            when (currentLine >= y && currentLine < y + height) $ do
-                -- TODO: color palettes and transparency
-                let
-                    tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
-                    tile = readTile bus tileMemStart
-                    dummyPalette = readByte bus 0xff49
-                modifying'
-                    screen
-                    ( \scr ->
-                        let
-                            tileRow = tile Vector.! fromIntegral line
-                            v = scr Vector.! fromIntegral currentLine
-                            v' =
-                                v
-                                    Vector.// ( fmap
-                                                    ( \i ->
-                                                        ( fromIntegral x + i
-                                                        , fmap (translateTileColors dummyPalette) tileRow Vector.! i
-                                                        )
+                tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
+                tile = readTile bus flipMode tileMemStart
+                dummyPalette = readByte bus $ if Bits.testBit attrs 4 then 0xff49 else 0xff48
+            modifying'
+                screen
+                ( \scr ->
+                    let
+                        tileRow = tile Vector.! fromIntegral line
+                        v = scr Vector.! fromIntegral currentLine
+                        v' =
+                            v
+                                Vector.// ( fmap
+                                                ( \i ->
+                                                    ( fromIntegral x + i
+                                                    , fmap (translateTileColors dummyPalette) tileRow Vector.! i
                                                     )
-                                                    [0 .. 7]
-                                              )
-                        in
-                            scr Vector.// [(fromIntegral currentLine, v')]
-                    )
+                                                )
+                                                [0 .. 7]
+                                          )
+                    in
+                        scr Vector.// [(fromIntegral currentLine, v')]
+                )
 
 setLcdStatus :: GameBoy m => m ()
 setLcdStatus = do
@@ -242,7 +269,7 @@ setLcdStatus = do
             when (newMode /= oldMode && newMode == 3) $ do
                 -- FIXME/TODO: check BG priority here!
                 drawScanline
-                drawSprites
+                when (s ^. memoryBus % objEnabled) drawSprites
             when (needStatInterrupt && newMode /= oldMode) $
                 assign' (memoryBus % interruptFlags % bit 1) True
             compareValue <- use (memoryBus % lyc)

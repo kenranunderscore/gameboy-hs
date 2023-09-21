@@ -6,7 +6,6 @@ module GameBoy.Main (main) where
 import Control.Concurrent.Async qualified as Async
 import Control.Monad
 import Control.Monad.State.Strict
-import Data.Bits qualified as Bits
 import Data.IORef
 import Data.Vector qualified as Vector
 import Debug.Trace
@@ -74,7 +73,7 @@ mainLoop scrRef = forever $ do
                                             tileIdentifier = readByte bus tileIdentifierAddr
                                             tileAddr = determineTileAddress tileIdentifier (bus ^. addressingMode)
                                         in
-                                            readTile bus tileAddr
+                                            readTile bus NoFlip tileAddr
                                     )
                                     (Vector.fromList [0 .. 31])
                         in Vector.foldl1' (\v w -> Vector.zipWith (Vector.++) v w) rowTiles
