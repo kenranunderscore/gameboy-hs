@@ -30,6 +30,7 @@ library
     , mtl
     , optics
     , sdl2
+    , time
     , vector
 
   hs-source-dirs:   src-lib

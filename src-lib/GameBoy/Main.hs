@@ -7,7 +7,7 @@ import Control.Concurrent.Async qualified as Async
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.IORef
-import Data.Vector qualified as Vector
+import Data.Time qualified as Time
 import Debug.Trace
 import Optics
 import System.Environment qualified as Environment
@@ -24,15 +24,25 @@ maxCyclesPerFrame :: Int
 maxCyclesPerFrame = 4_194_304 `div` 60
 
 mainLoop :: (MonadIO m, GameBoy m) => IORef InMemoryScreen -> m ()
-mainLoop scrRef = forever $ do
-    -- TODO: it feels wrong to start at 0 here
-    -- shouldn't we use the superfluous cycles from the frame before?
-    oneFrame 0
-    liftIO $ putStrLn "    [FRAME FINISHED]"
-    fullBG <- snapshotBackgroundArea
-    scr <- use preparedScreen
-    liftIO $ writeIORef scrRef scr
+mainLoop scrRef = do
+    now <- liftIO Time.getCurrentTime
+    loop 0 now
   where
+    loop (frames :: Int) t = do
+        -- TODO: it feels wrong to start at 0 here
+        -- shouldn't we use the superfluous cycles from the frame before?
+        oneFrame 0
+        scr <- use preparedScreen
+        liftIO $ writeIORef scrRef scr
+        if (frames > 200)
+            then do
+                now <- liftIO Time.getCurrentTime
+                let
+                    dt = Time.diffUTCTime now t
+                    fps = realToFrac frames / dt
+                liftIO $ putStrLn $ "  FPS = " <> show fps
+                loop 0 now
+            else loop (frames + 1) t
     oneFrame n = when (n < maxCyclesPerFrame) $ do
         s <- get
         cycles <-
@@ -48,43 +58,40 @@ mainLoop scrRef = forever $ do
                     when (s ^. memoryBus % interruptFlags > 0) $
                         assign' halted False
                     pure 4
-        s' <- get
-        -- liftIO $ putStrLn $ "      LCDC: " <> toHex (view (memoryBus % lcdc) s')
-        -- liftIO $ putStrLn $ "      MODE: " <> show (view (memoryBus % addressingMode) s')
-        -- liftIO $ putStrLn $ "      MAP: " <> show (view (memoryBus % bgTileMapArea) s')
         updateTimers cycles
         updateGraphics cycles
         interruptCycles <- handleInterrupts
         oneFrame (n + cycles + interruptCycles)
-    snapshotBackgroundArea = do
-        bus <- use memoryBus
-        let
-            addr = case bus ^. bgTileMapArea of
-                Area9800 -> 0x9800
-                Area9C00 -> 0x9C00
-            tiles =
-                Vector.concatMap
-                    ( \y ->
-                        let rowTiles =
-                                fmap
-                                    ( \x ->
-                                        let
-                                            tileIdentifierAddr = addr + 32 * y + x
-                                            tileIdentifier = readByte bus tileIdentifierAddr
-                                            tileAddr = determineTileAddress tileIdentifier (bus ^. addressingMode)
-                                        in
-                                            readTile bus NoFlip tileAddr
-                                    )
-                                    (Vector.fromList [0 .. 31])
-                        in Vector.foldl1' (\v w -> Vector.zipWith (Vector.++) v w) rowTiles
-                    )
-                    (Vector.fromList [0 .. 31])
-            colorToU8 = \case
-                Color0 -> 0 :: U8
-                Color1 -> 1
-                Color2 -> 2
-                Color3 -> 3
-        pure $ fmap (fmap colorToU8) tiles
+
+-- snapshotBackgroundArea = do
+--     bus <- use memoryBus
+--     let
+--         addr = case bus ^. bgTileMapArea of
+--             Area9800 -> 0x9800
+--             Area9C00 -> 0x9C00
+--         tiles =
+--             Vector.concatMap
+--                 ( \y ->
+--                     let rowTiles =
+--                             fmap
+--                                 ( \x ->
+--                                     let
+--                                         tileIdentifierAddr = addr + 32 * y + x
+--                                         tileIdentifier = readByte bus tileIdentifierAddr
+--                                         tileAddr = determineTileAddress tileIdentifier (bus ^. addressingMode)
+--                                     in
+--                                         readTile bus NoFlip tileAddr
+--                                 )
+--                                 (Vector.fromList [0 .. 31])
+--                     in Vector.foldl1' (\v w -> Vector.zipWith (Vector.++) v w) rowTiles
+--                 )
+--                 (Vector.fromList [0 .. 31])
+--         colorToU8 = \case
+--             Color0 -> 0 :: U8
+--             Color1 -> 1
+--             Color2 -> 2
+--             Color3 -> 3
+--     pure $ fmap (fmap colorToU8) tiles
 
 main :: IO ()
 main = do
