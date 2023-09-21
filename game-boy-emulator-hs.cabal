@@ -27,6 +27,7 @@ library
     , async
     , base
     , bytestring
+    , containers
     , mtl
     , optics
     , sdl2

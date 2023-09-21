@@ -11,8 +11,9 @@ import Control.Monad
 import Control.Monad.State.Strict
 import Data.Bits ((.&.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
+import Data.Foldable
+import Data.Set qualified as Set
 import Data.Vector qualified as Vector
-import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
@@ -2001,6 +2002,18 @@ dmaTransfer :: GameBoy m => U8 -> m ()
 dmaTransfer n = do
     let startAddr :: U16 = Bits.shiftL (fromIntegral n) 8 -- times 0x100
     bus <- use memoryBus
-    -- FIXME: use a slice pointing to cartridge memory instead?
+    -- TODO: use a slice pointing to cartridge memory instead?
     forM_ [0 .. 0xa0 - 1] $ \i ->
         assign' (memoryBus % oam % byte i) (readByte bus (startAddr + i))
+
+-- TODO: move this stuff into a 'GameBoy' (main) module
+data Button = BtnUp | BtnDown | BtnLeft | BtnRight | BtnA | BtnB | BtnSelect | BtnStart
+    deriving (Show, Ord, Enum, Bounded, Eq)
+
+buttonsToByte :: U8 -> Set.Set Button -> U8
+buttonsToByte oldJoyp = foldl' applyButton oldJoyp
+  where
+    applyButton joyp = \case
+        BtnStart -> Bits.clearBit (Bits.clearBit joyp 3) 5
+        -- TODO: implement other buttons
+        _ -> joyp

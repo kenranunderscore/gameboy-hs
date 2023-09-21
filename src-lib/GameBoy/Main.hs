@@ -34,7 +34,7 @@ mainLoop scrRef = do
         oneFrame 0
         scr <- use preparedScreen
         liftIO $ writeIORef scrRef scr
-        if (frames > 200)
+        if (frames > 120)
             then do
                 now <- liftIO Time.getCurrentTime
                 let
@@ -54,7 +54,7 @@ mainLoop scrRef = do
                     -- liftIO $ putStrLn $ " DIV == " <> toHex (view (memoryBus % timers % divider) s `Bits.shiftR` 8)
                     pure cycles
                 else do
-                    liftIO $ putStrLn "  [HALT]"
+                    -- liftIO $ putStrLn "  [HALT]"
                     when (s ^. memoryBus % interruptFlags > 0) $
                         assign' halted False
                     pure 4
@@ -102,8 +102,8 @@ main = do
         [] -> fail "need path to ROM as first argument"
         (cartridgePath : _) -> do
             scrRef <- newIORef emptyScreen
-            graphics <- Async.asyncBound $ Render.runGraphics scrRef
             game <- Async.async $ do
                 bus <- initializeMemoryBus cartridgePath
                 void $ execStateT (mainLoop scrRef) (mkInitialState bus)
+            graphics <- Async.asyncBound $ Render.runGraphics (error "TODO: implement") scrRef
             void $ Async.waitAnyCancel [graphics, game]
