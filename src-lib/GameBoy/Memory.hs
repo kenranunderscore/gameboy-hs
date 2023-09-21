@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE StrictData #-}
@@ -6,9 +7,9 @@
 
 module GameBoy.Memory where
 
-import Control.Monad
 import Data.Bits ((.|.))
 import Data.ByteString qualified as BS
+import Data.Char qualified as Char
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Optics
@@ -203,13 +204,59 @@ ioInitialValues =
 
 {- FOURMOLU_ENABLE -}
 
-loadCartridgeFromFile :: FilePath -> IO Memory
+data CartridgeType
+    = NoMBC
+    | MBC1
+    | MBC1_RAM
+    | MBC1_RAM_Battery
+    | UnhandledCartridgeType U8
+    deriving (Show)
+
+readCartridgeType :: U8 -> CartridgeType
+readCartridgeType = \case
+    0 -> NoMBC
+    1 -> MBC1
+    2 -> MBC1_RAM
+    3 -> MBC1_RAM_Battery
+    unhandled -> UnhandledCartridgeType unhandled
+
+data CartridgeHeader = CartridgeHeader
+    { _title :: String
+    , _cgb :: U8
+    , _sgb :: U8
+    , _cartridgeType :: CartridgeType
+    }
+    deriving (Show)
+
+makeLenses ''CartridgeHeader
+
+data Cartridge = Cartridge
+    { _memory :: Memory
+    , _header :: Maybe CartridgeHeader
+    }
+    deriving (Show)
+
+makeLenses ''Cartridge
+
+readCartridgeHeader :: Memory -> Maybe CartridgeHeader
+readCartridgeHeader mem =
+    Just $
+        CartridgeHeader
+            theTitle
+            (mem Vector.! 0x143)
+            (mem Vector.! 0x146)
+            (readCartridgeType $ mem Vector.! 0x147)
+  where
+    theTitle =
+        Vector.toList $
+            Vector.map (Char.chr . fromIntegral) $
+                Vector.slice 0x134 (0x142 - 0x134 + 1) mem
+
+loadCartridgeFromFile :: FilePath -> IO Cartridge
 loadCartridgeFromFile path = do
     bytes <- BS.readFile path
-    let len = BS.length bytes
-    when (len > 0x8000) (fail $ "Unexpected cartridge size: " <> show len)
-    let padded = BS.unpack bytes <> replicate (0x10000 - len) 0
-    pure $ Vector.fromList padded
+    let mem = Vector.fromList $ BS.unpack bytes
+    pure $ Cartridge mem (readCartridgeHeader mem)
 
 defaultMemoryBus :: MemoryBus
 defaultMemoryBus =
@@ -232,4 +279,11 @@ mkEmptyMemory len =
 initializeMemoryBus :: FilePath -> IO MemoryBus
 initializeMemoryBus path = do
     cart <- loadCartridgeFromFile path
-    pure $ set cartridge cart defaultMemoryBus
+    case cart._header of
+        Nothing -> putStrLn "No cartridge header could be read"
+        Just h -> do
+            putStrLn $ "Loaded cartride:  " <> h._title
+            putStrLn $ "Cartridge type:  " <> show h._cartridgeType
+            putStrLn $ "CGB:  " <> toHex h._cgb
+            putStrLn $ "SGB:  " <> toHex h._sgb
+    pure $ set cartridge cart._memory defaultMemoryBus
