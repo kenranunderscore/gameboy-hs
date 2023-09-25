@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE StrictData #-}
@@ -8,13 +9,16 @@
 module GameBoy.Memory where
 
 import Data.Bits ((.|.))
+import Data.Bits qualified as Bits
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
+import GameBoy.Gamepad
 
 type Memory = Vector U8
 
@@ -29,6 +33,8 @@ data MemoryBus = MemoryBus
     -- ^ WRAM: $c000 - $dfff
     , _oam :: Memory
     -- ^ Object attribute memory: $fe00 - $fe9f
+    , _gamepadState :: GamepadState
+    -- ^ Current state of the buttons: $ff00
     , _io :: Memory
     -- ^ IO registers: $ff00 - $ff7f
     , _hram :: Memory
@@ -57,11 +63,20 @@ readByte bus addr
     | addr < 0xfe00 = bus._wram Vector.! fromIntegral (addr - 0xc000) -- echoes WRAM
     | addr < 0xfea0 = bus._oam Vector.! fromIntegral (addr - 0xfe00)
     | addr < 0xff00 = 0 -- forbidden area
-    | addr == 0xff00 = (bus._io Vector.! 0) .|. 0xcf -- TODO improve?
+    | addr == 0xff00 = readGamepad bus
     | addr < 0xff80 = bus._io Vector.! fromIntegral (addr - 0xff00)
     | addr < 0xffff = bus._hram Vector.! fromIntegral (addr - 0xff80)
     | addr == 0xffff = bus._ie
     | otherwise = error "the impossible happened"
+
+readGamepad :: MemoryBus -> U8
+readGamepad bus =
+    if not $ Bits.testBit val 5
+        then (if buttonPressed BtnStart buttons then trace "yay" $ Bits.clearBit val 3 else val)
+        else val
+  where
+    val = (bus._io Vector.! 0) .|. 0xcf
+    buttons = bus._gamepadState
 
 writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
 writeByte addr n bus
@@ -95,7 +110,9 @@ writeIO addr n bus =
 readU16 :: MemoryBus -> U16 -> U16
 readU16 bus addr =
     -- GameBoy is little-endian
-    combineBytes (readByte bus $ addr + 1) (readByte bus addr)
+    combineBytes
+        (readByte bus $ addr + 1)
+        (readByte bus addr)
 
 scanline :: Lens' MemoryBus U8
 scanline = io % byte 0x44
@@ -264,6 +281,7 @@ defaultMemoryBus =
     MemoryBus
         { _ie = 0x0 -- TODO check this
         , _hram = mkEmptyMemory 0x80
+        , _gamepadState = noButtonsPressed
         , _io = ioInitialValues
         , _oam = mkEmptyMemory 0x100
         , _wram = mkEmptyMemory 0x2000

@@ -4,17 +4,17 @@
 module GameBoy.Main (main) where
 
 import Control.Concurrent.Async qualified as Async
+import Control.Concurrent.STM qualified as STM
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.IORef
 import Data.Time qualified as Time
-import Debug.Trace
 import Optics
 import System.Environment qualified as Environment
 import System.IO
 
-import GameBoy.BitStuff
 import GameBoy.CPU
+import GameBoy.Gamepad
 import GameBoy.Memory
 import GameBoy.PPU
 import GameBoy.Render qualified as Render
@@ -23,8 +23,12 @@ import GameBoy.State
 maxCyclesPerFrame :: Int
 maxCyclesPerFrame = 4_194_304 `div` 60
 
-mainLoop :: (MonadIO m, GameBoy m) => IORef InMemoryScreen -> m ()
-mainLoop scrRef = do
+mainLoop ::
+    (MonadIO m, GameBoy m) =>
+    IORef InMemoryScreen ->
+    STM.TVar GamepadState ->
+    m ()
+mainLoop scrRef buttonsRef = do
     now <- liftIO Time.getCurrentTime
     loop 0 now
   where
@@ -44,6 +48,7 @@ mainLoop scrRef = do
                 loop 0 now
             else loop (frames + 1) t
     oneFrame n = when (n < maxCyclesPerFrame) $ do
+        syncInput
         s <- get
         cycles <-
             if not $ s ^. halted
@@ -62,6 +67,9 @@ mainLoop scrRef = do
         updateGraphics cycles
         interruptCycles <- handleInterrupts
         oneFrame (n + cycles + interruptCycles)
+    syncInput = do
+        buttons <- liftIO $ STM.readTVarIO buttonsRef
+        assign' (memoryBus % gamepadState) buttons
 
 -- snapshotBackgroundArea = do
 --     bus <- use memoryBus
@@ -102,8 +110,11 @@ main = do
         [] -> fail "need path to ROM as first argument"
         (cartridgePath : _) -> do
             scrRef <- newIORef emptyScreen
+            buttonsRef <- STM.newTVarIO noButtonsPressed
             game <- Async.async $ do
                 bus <- initializeMemoryBus cartridgePath
-                void $ execStateT (mainLoop scrRef) (mkInitialState bus)
-            graphics <- Async.asyncBound $ Render.runGraphics (error "TODO: implement") scrRef
+                void $ execStateT (mainLoop scrRef buttonsRef) (mkInitialState bus)
+            graphics <-
+                Async.asyncBound $
+                    Render.runGraphics (STM.atomically . STM.writeTVar buttonsRef) scrRef
             void $ Async.waitAnyCancel [graphics, game]

@@ -1,5 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
 module GameBoy.Render where
 
@@ -10,14 +12,13 @@ import Data.Foldable
 import Data.IORef
 import Data.Set qualified as Set
 import Data.Vector qualified as Vector
-import Debug.Trace
 import SDL (($=))
 import SDL qualified
 
-import GameBoy.CPU
-import GameBoy.State (InMemoryScreen)
+import GameBoy.Gamepad
+import GameBoy.State
 
-tileSize = 8
+tileSize = 6
 
 renderScreen :: MonadIO m => SDL.Renderer -> InMemoryScreen -> m ()
 renderScreen renderer scr = do
@@ -45,11 +46,10 @@ renderScreen renderer scr = do
         3 -> SDL.V4 15 56 15 0xff
         _ -> error "impossible color"
 
-runGraphics :: (Set.Set Button -> IO ()) -> IORef InMemoryScreen -> IO ()
-runGraphics btnCallback scrRef = do
+runGraphics :: (GamepadState -> IO ()) -> IORef InMemoryScreen -> IO ()
+runGraphics inputCallback scrRef = do
     withSdl $ withSdlWindow $ \w ->
         withSdlRenderer w $ \renderer -> do
-            SDL.rendererDrawColor renderer $= SDL.V4 0 0 255 255
             void $ appLoop renderer
   where
     escPressed evt =
@@ -60,28 +60,35 @@ runGraphics btnCallback scrRef = do
             _ -> False
     collectButtonPresses =
         foldl'
-            ( \buttons evt ->
+            ( \buttonActions evt ->
                 case SDL.eventPayload evt of
                     SDL.KeyboardEvent keyboardEvent ->
-                        if SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed
-                            then case SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent) of
-                                SDL.KeycodeDown -> Set.insert BtnDown buttons
-                                SDL.KeycodeUp -> Set.insert BtnUp buttons
-                                SDL.KeycodeLeft -> Set.insert BtnLeft buttons
-                                SDL.KeycodeRight -> Set.insert BtnRight buttons
-                                SDL.KeycodeZ -> Set.insert BtnB buttons
-                                SDL.KeycodeX -> Set.insert BtnA buttons
-                                SDL.KeycodeI -> Set.insert BtnStart buttons
-                                SDL.KeycodeN -> Set.insert BtnSelect buttons
-                                _ -> buttons
-                            else buttons
-                    _ -> buttons
+                        let
+                            keycode = SDL.keysymKeycode (SDL.keyboardEventKeysym keyboardEvent)
+                            change =
+                                if SDL.keyboardEventKeyMotion keyboardEvent == SDL.Pressed
+                                    then Set.insert
+                                    else Set.delete
+                        in
+                            -- FIXME: looks like it "forgets" buttons when
+                            -- multiple are being pressed
+                            case keycode of
+                                SDL.KeycodeDown -> change BtnDown buttonActions
+                                SDL.KeycodeUp -> change BtnUp buttonActions
+                                SDL.KeycodeLeft -> change BtnLeft buttonActions
+                                SDL.KeycodeRight -> change BtnRight buttonActions
+                                SDL.KeycodeZ -> change BtnB buttonActions
+                                SDL.KeycodeX -> change BtnA buttonActions
+                                SDL.KeycodeI -> change BtnStart buttonActions
+                                SDL.KeycodeN -> change BtnSelect buttonActions
+                                _ -> buttonActions
+                    _ -> buttonActions
             )
             Set.empty
     appLoop renderer = do
         evts <- SDL.pollEvents
         let buttons = collectButtonPresses evts
-        -- btnCallback buttons -- FIXME
+        inputCallback buttons
         SDL.clear renderer
         scr <- readIORef scrRef
         renderScreen renderer scr

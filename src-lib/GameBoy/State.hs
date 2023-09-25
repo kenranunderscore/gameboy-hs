@@ -110,7 +110,3 @@ mkInitialState bus =
             }
 
 type GameBoy m = MonadState CPUState m
-
--- TODO: use something more performant than 'String'
-showScreen :: InMemoryScreen -> String
-showScreen = concatMap (\line -> concatMap show line <> "\n")
