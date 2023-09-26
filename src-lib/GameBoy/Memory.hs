@@ -70,12 +70,9 @@ readByte bus addr
     | otherwise = error "the impossible happened"
 
 readGamepad :: MemoryBus -> U8
-readGamepad bus =
-    if not $ Bits.testBit val 5
-        then (if buttonPressed BtnStart buttons then trace "yay" $ Bits.clearBit val 3 else val)
-        else val
+readGamepad bus = toJoyp buttons val
   where
-    val = (bus._io Vector.! 0) .|. 0xcf
+    val = bus._io Vector.! 0
     buttons = bus._gamepadState
 
 writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
