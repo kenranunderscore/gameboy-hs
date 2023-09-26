@@ -8,13 +8,10 @@
 
 module GameBoy.Memory where
 
-import Data.Bits ((.|.))
-import Data.Bits qualified as Bits
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
