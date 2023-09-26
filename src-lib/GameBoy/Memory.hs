@@ -10,8 +10,8 @@ module GameBoy.Memory where
 
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
-import Data.Vector (Vector)
-import Data.Vector qualified as Vector
+import Data.Vector.Unboxed (Vector)
+import Data.Vector.Unboxed qualified as Vector
 import Optics
 
 import GameBoy.BitStuff
