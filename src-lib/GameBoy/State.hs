@@ -109,4 +109,4 @@ mkInitialState bus =
             , _sp = 0xfffe
             }
 
-type GameBoy m = MonadState CPUState m
+type GameBoy a = StateT CPUState IO a

@@ -70,13 +70,11 @@ stackTests =
     testGroup
         "Unit tests for interaction with the memory-mapped stack"
         [ testCase "pop after push" $ do
-            let
-                action = push 0xabcd >> pop
-                res = evalState action (mkInitialState defaultMemoryBus)
+            let action = push 0xabcd >> pop
+            res <- evalStateT action (mkInitialState defaultMemoryBus)
             toHex res @?= "$abcd"
         , testCase "Multiple pops after multiple pushes" $ do
-            let
-                action = do
+            let action = do
                     push 0xb0a3
                     push 0x112e
                     push 0x0007
@@ -84,7 +82,7 @@ stackTests =
                     x2 <- pop
                     x3 <- pop
                     pure (x1, x2, x3)
-                (x, y, z) = evalState action (mkInitialState defaultMemoryBus)
+            (x, y, z) <- evalStateT action (mkInitialState defaultMemoryBus)
             toHex x @?= "$7"
             toHex y @?= "$112e"
             toHex z @?= "$b0a3"

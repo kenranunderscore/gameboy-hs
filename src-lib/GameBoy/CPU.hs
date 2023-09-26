@@ -12,7 +12,6 @@ import Control.Monad.State.Strict
 import Data.Bits ((.&.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
 import Data.Vector qualified as Vector
-import Debug.Trace
 import Optics
 
 import GameBoy.BitStuff
@@ -42,7 +41,7 @@ setFlag fl = set (flag fl) True
 hasFlag :: Flag -> CPUState -> Bool
 hasFlag fl = view (registers % flag fl)
 
-advance :: GameBoy m => U16 -> m ()
+advance :: U16 -> GameBoy ()
 advance n = modifying' programCounter (+ n)
 
 data TargetRegister = A | B | C | D | E | H | L
@@ -328,17 +327,17 @@ instance Show Instr where
         HALT -> "HALT"
         STOP -> "STOP"
 
-fetchByteM :: GameBoy m => m U8
+fetchByteM :: GameBoy U8
 fetchByteM = do
     s <- get
     advance 1
     pure $ readByte (view memoryBus s) (view programCounter s)
 
-fetchI8M :: GameBoy m => m I8
+fetchI8M :: GameBoy I8
 fetchI8M = do
     fromIntegral <$> fetchByteM
 
-fetchU16M :: GameBoy m => m U16
+fetchU16M :: GameBoy U16
 fetchU16M = do
     s <- get
     advance 2
@@ -404,7 +403,7 @@ instance Show Instruction where
 
 makeLenses ''Instruction
 
-fetch :: GameBoy m => m Instruction
+fetch :: GameBoy Instruction
 fetch = do
     s <- get
     let
@@ -664,7 +663,7 @@ fetch = do
                 unknown -> error $ "unknown opcode: " <> toHex unknown
             pure $ Instruction cycles instr
 
-fetchPrefixed :: GameBoy m => m Instruction
+fetchPrefixed :: GameBoy Instruction
 fetchPrefixed = do
     s <- get
     let
@@ -933,7 +932,7 @@ fetchPrefixed = do
         0xff -> SET 7 A
         unknown -> error $ "unknown prefixed byte: " <> toHex unknown
 
-writeMemory :: GameBoy m => U16 -> U8 -> m ()
+writeMemory :: U16 -> U8 -> GameBoy ()
 writeMemory addr n =
     -- HACK: "listen" for changes that potentially cascade to other state
     -- changes here
@@ -954,7 +953,7 @@ writeMemory addr n =
                 assign' timerCounter (counterFromFrequency freq')
         _ -> modifying' memoryBus (writeByte addr n)
 
-push :: GameBoy m => U16 -> m ()
+push :: U16 -> GameBoy ()
 push n = do
     s <- get
     let curr = s ^. stackPointer
@@ -964,14 +963,14 @@ push n = do
   where
     (hi, lo) = splitIntoBytes n
 
-pop :: GameBoy m => m U16
+pop :: GameBoy U16
 pop = do
     -- TODO: do I have to zero the popped memory location?
     s <- get
     put (s & registers % sp %!~ (+ 2))
     pure $ readU16 (view memoryBus s) (view stackPointer s)
 
-dec :: GameBoy m => Lens' Registers U8 -> m ()
+dec :: Lens' Registers U8 -> GameBoy ()
 dec reg = do
     modify' $ \s ->
         let
@@ -986,7 +985,7 @@ dec reg = do
                             . set reg result
                         )
 
-inc :: GameBoy m => Lens' Registers U8 -> m ()
+inc :: Lens' Registers U8 -> GameBoy ()
 inc reg = do
     modify' $ \s ->
         let
@@ -1001,16 +1000,16 @@ inc reg = do
                             . set reg result
                         )
 
-ld_r_r :: GameBoy m => TargetRegister -> TargetRegister -> m ()
+ld_r_r :: TargetRegister -> TargetRegister -> GameBoy ()
 ld_r_r r r' = modify' $ \s ->
     s & registers % (targetL r) !~ (s ^. registers % targetL r')
 
-deref :: GameBoy m => Lens' Registers U16 -> m U8
+deref :: Lens' Registers U16 -> GameBoy U8
 deref rr = do
     s <- get
     pure $ readByte (view memoryBus s) (view (registers % rr) s)
 
-execute :: GameBoy m => Instruction -> m Int
+execute :: Instruction -> GameBoy Int
 execute Instruction{_tag, _baseCycles} =
     case _tag of
         NOP ->
@@ -1598,7 +1597,7 @@ execute Instruction{_tag, _baseCycles} =
   where
     exec action = action >> pure _baseCycles
 
-add_sp :: GameBoy m => I8 -> m ()
+add_sp :: I8 -> GameBoy ()
 add_sp n = do
     modifying' registers $ \rs ->
         let (res, needsHalfCarry, needsCarry) = add_spPure rs._sp n
@@ -1619,7 +1618,7 @@ add_spPure orig n =
     in
         (fromIntegral res', needsHalfCarry, needsCarry)
 
-daa :: GameBoy m => m ()
+daa :: GameBoy ()
 daa = do
     modify' $ \s ->
         let
@@ -1644,7 +1643,7 @@ daa = do
                     . set (flag Carry) setCarry
                     . clearFlag HalfCarry
 
-add_hl :: GameBoy m => Lens' Registers U16 -> m ()
+add_hl :: Lens' Registers U16 -> GameBoy ()
 add_hl rr = do
     modifying' registers $ \rs ->
         let
@@ -1661,7 +1660,7 @@ add_hl rr = do
                 & set (flag HalfCarry) needsHalfCarry
                 & set (flag Carry) needsCarry
 
-or_a :: GameBoy m => TargetRegister -> m ()
+or_a :: TargetRegister -> GameBoy ()
 or_a r = do
     modifying' registers $ \rs ->
         let
@@ -1675,7 +1674,7 @@ or_a r = do
                     . clearFlag HalfCarry
                     . set (flag Zero) (res == 0)
 
-or_a_u8 :: GameBoy m => U8 -> m ()
+or_a_u8 :: U8 -> GameBoy ()
 or_a_u8 n = do
     modifying' registers $ \rs ->
         let res = rs ^. a .|. n
@@ -1686,7 +1685,7 @@ or_a_u8 n = do
                 . clearFlag HalfCarry
                 . set (flag Zero) (res == 0)
 
-and_a :: GameBoy m => TargetRegister -> m ()
+and_a :: TargetRegister -> GameBoy ()
 and_a r = do
     modifying' registers $ \rs ->
         let
@@ -1700,7 +1699,7 @@ and_a r = do
                     . setFlag HalfCarry
                     . set (flag Zero) (res == 0)
 
-and_a_u8 :: GameBoy m => U8 -> m ()
+and_a_u8 :: U8 -> GameBoy ()
 and_a_u8 n = do
     modifying' registers $ \rs ->
         let res = rs ^. a .&. n
@@ -1711,7 +1710,7 @@ and_a_u8 n = do
                 . setFlag HalfCarry
                 . set (flag Zero) (res == 0)
 
-add_a :: GameBoy m => TargetRegister -> m ()
+add_a :: TargetRegister -> GameBoy ()
 add_a r = do
     modifying' registers $ \rs ->
         let
@@ -1729,7 +1728,7 @@ add_a r = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-add_a_u8 :: GameBoy m => U8 -> m ()
+add_a_u8 :: U8 -> GameBoy ()
 add_a_u8 n = do
     modifying' registers $ \rs ->
         let
@@ -1746,7 +1745,7 @@ add_a_u8 n = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-xor_a :: GameBoy m => TargetRegister -> m ()
+xor_a :: TargetRegister -> GameBoy ()
 xor_a r = do
     modifying' registers $ \rs ->
         let
@@ -1760,7 +1759,7 @@ xor_a r = do
                     . clearFlag HalfCarry
                     . set (flag Zero) (res == 0)
 
-xor_a_u8 :: GameBoy m => U8 -> m ()
+xor_a_u8 :: U8 -> GameBoy ()
 xor_a_u8 n = do
     modifying'
         registers
@@ -1774,7 +1773,7 @@ xor_a_u8 n = do
                 & a !~ res
         )
 
-cp_a :: GameBoy m => TargetRegister -> m ()
+cp_a :: TargetRegister -> GameBoy ()
 cp_a r = do
     modifying' registers $ \rs ->
         let
@@ -1789,7 +1788,7 @@ cp_a r = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-cp_a_u8 :: GameBoy m => U8 -> m ()
+cp_a_u8 :: U8 -> GameBoy ()
 cp_a_u8 n = do
     modify' $ \s ->
         let
@@ -1804,7 +1803,7 @@ cp_a_u8 n = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Carry) (orig < n)
 
-sbc_a :: GameBoy m => TargetRegister -> m ()
+sbc_a :: TargetRegister -> GameBoy ()
 sbc_a r = do
     modifying' registers $ \rs ->
         let
@@ -1823,7 +1822,7 @@ sbc_a r = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-sbc_a_u8 :: GameBoy m => U8 -> m ()
+sbc_a_u8 :: U8 -> GameBoy ()
 sbc_a_u8 n = do
     modifying' registers $ \rs ->
         let
@@ -1841,7 +1840,7 @@ sbc_a_u8 n = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-sub_a :: GameBoy m => TargetRegister -> m ()
+sub_a :: TargetRegister -> GameBoy ()
 sub_a r = do
     modifying' registers $ \rs ->
         let
@@ -1857,7 +1856,7 @@ sub_a r = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-sub_a_u8 :: GameBoy m => U8 -> m ()
+sub_a_u8 :: U8 -> GameBoy ()
 sub_a_u8 n = do
     modifying' registers $ \rs ->
         let
@@ -1872,7 +1871,7 @@ sub_a_u8 n = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-adc_a :: GameBoy m => TargetRegister -> m ()
+adc_a :: TargetRegister -> GameBoy ()
 adc_a r = do
     modifying' registers $ \rs ->
         let
@@ -1891,7 +1890,7 @@ adc_a r = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-adc_a_u8 :: GameBoy m => U8 -> m ()
+adc_a_u8 :: U8 -> GameBoy ()
 adc_a_u8 n = do
     modifying' registers $ \rs ->
         let
@@ -1909,7 +1908,7 @@ adc_a_u8 n = do
                     . set (flag HalfCarry) needsHalfCarry
                     . set (flag Zero) (res == 0)
 
-updateTimers :: GameBoy m => Int -> m ()
+updateTimers :: Int -> GameBoy ()
 updateTimers cycles = do
     updateDivider cycles
     s <- get
@@ -1925,7 +1924,7 @@ updateTimers cycles = do
                     assign' (memoryBus % timerIntRequested) True
                 else modifying' (memoryBus % tima) (+ 1)
 
-updateDivider :: GameBoy m => Int -> m ()
+updateDivider :: Int -> GameBoy ()
 updateDivider cycles = do
     counter <- use dividerCounter
     let counter' = counter + cycles
@@ -1959,7 +1958,7 @@ counterFromFrequency = \case
 timerFrequency :: Getter MemoryBus TimerFrequency
 timerFrequency = tac % to readTimerFrequency
 
-handleInterrupts :: GameBoy m => m Int
+handleInterrupts :: GameBoy Int
 handleInterrupts = do
     s <- get
     if view masterInterruptEnable s
@@ -1997,7 +1996,7 @@ handleInterrupts = do
             4 -> assign' programCounter 0x60 -- Joypad
             s -> error $ "unhandled interrupt: " <> show s
 
-dmaTransfer :: GameBoy m => U8 -> m ()
+dmaTransfer :: U8 -> GameBoy ()
 dmaTransfer n = do
     let startAddr :: U16 = Bits.shiftL (fromIntegral n) 8 -- times 0x100
     bus <- use memoryBus

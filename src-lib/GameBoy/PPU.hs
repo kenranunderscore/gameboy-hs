@@ -197,7 +197,7 @@ determineNextLcdStatus counter line status =
             , Bits.clearBit (Bits.clearBit status 0) 1
             )
 
-drawScanline :: GameBoy m => m ()
+drawScanline :: GameBoy ()
 drawScanline = do
     bus <- use memoryBus
     let scanlineColors = readScanlineColors bus
@@ -215,7 +215,7 @@ readFlipMode spriteAttrs =
         (False, True) -> FlipY
         _ -> FlipBoth
 
-drawSprites :: GameBoy m => m ()
+drawSprites :: GameBoy ()
 drawSprites = do
     bus <- use memoryBus
     forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
@@ -255,7 +255,7 @@ drawSprites = do
                         scr Vector.// [(fromIntegral currentLine, v')]
                 )
 
-setLcdStatus :: GameBoy m => m ()
+setLcdStatus :: GameBoy ()
 setLcdStatus = do
     s <- get
     let status = s ^. memoryBus % lcdStatus
@@ -291,7 +291,7 @@ setLcdStatus = do
             let status' = Bits.setBit (Bits.clearBit status 1) 0
             assign' (memoryBus % lcdStatus) status'
 
-updateGraphics :: GameBoy m => Int -> m ()
+updateGraphics :: Int -> GameBoy ()
 updateGraphics cycles = do
     setLcdStatus
     s <- get

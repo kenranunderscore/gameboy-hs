@@ -25,10 +25,9 @@ maxCyclesPerFrame :: Int
 maxCyclesPerFrame = 4_194_304 `div` 60
 
 mainLoop ::
-    (MonadIO m, GameBoy m) =>
     IORef InMemoryScreen ->
     STM.TVar GamepadState ->
-    m ()
+    GameBoy ()
 mainLoop scrRef buttonsRef = do
     now <- liftIO Time.getCurrentTime
     loop 0 now
