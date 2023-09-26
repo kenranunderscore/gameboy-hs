@@ -8,6 +8,7 @@ import Control.Concurrent.STM qualified as STM
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.IORef
+import Data.Set qualified as Set
 import Data.Time qualified as Time
 import Optics
 import System.Environment qualified as Environment
@@ -38,7 +39,7 @@ mainLoop scrRef buttonsRef = do
         oneFrame 0
         scr <- use preparedScreen
         liftIO $ writeIORef scrRef scr
-        if (frames > 120)
+        if (frames > 30)
             then do
                 now <- liftIO Time.getCurrentTime
                 let
@@ -69,6 +70,7 @@ mainLoop scrRef buttonsRef = do
         oneFrame (n + cycles + interruptCycles)
     syncInput = do
         buttons <- liftIO $ STM.readTVarIO buttonsRef
+        unless (Set.null buttons) (liftIO $ print buttons)
         assign' (memoryBus % gamepadState) buttons
 
 -- snapshotBackgroundArea = do
