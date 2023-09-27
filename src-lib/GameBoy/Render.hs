@@ -11,6 +11,7 @@ import Control.Monad.IO.Class (MonadIO)
 import Data.Foldable
 import Data.IORef
 import Data.Set qualified as Set
+import Data.Time qualified as Time
 import Data.Vector qualified as Vector
 import SDL (($=))
 import SDL qualified
@@ -50,7 +51,8 @@ runGraphics :: (GamepadState -> IO ()) -> IORef InMemoryScreen -> IO ()
 runGraphics inputCallback scrRef = do
     withSdl $ withSdlWindow $ \w ->
         withSdlRenderer w $ \renderer -> do
-            void $ appLoop renderer
+            now <- Time.getCurrentTime
+            void $ appLoop renderer now 0
   where
     escPressed evt =
         case SDL.eventPayload evt of
@@ -85,7 +87,7 @@ runGraphics inputCallback scrRef = do
                     _ -> buttonActions
             )
             Set.empty
-    appLoop renderer = do
+    appLoop renderer t (frames :: Int) = do
         evts <- SDL.pollEvents
         let buttons = collectButtonPresses evts
         inputCallback buttons
@@ -93,7 +95,16 @@ runGraphics inputCallback scrRef = do
         scr <- readIORef scrRef
         renderScreen renderer scr
         SDL.present renderer
-        unless (any escPressed evts) (appLoop renderer)
+        unless (any escPressed evts) $ do
+            if frames == 59
+                then do
+                    now <- Time.getCurrentTime
+                    let
+                        dt = Time.diffUTCTime now t
+                        fps = 60 / dt
+                    putStrLn $ "        RENDER FPS: " <> show fps
+                    appLoop renderer now 0
+                else appLoop renderer t (frames + 1)
 
 withSdl :: IO a -> IO a
 withSdl =
@@ -110,7 +121,6 @@ withSdl =
 withSdlWindow :: (SDL.Window -> IO a) -> IO a
 withSdlWindow action = do
     let windowConfig = SDL.defaultWindow{SDL.windowInitialSize = SDL.V2 (160 * tileSize) (144 * tileSize)}
-    -- let windowConfig = SDL.defaultWindow{SDL.windowInitialSize = SDL.V2 (255 * tileSize) (255 * tileSize)}
     Exception.bracket
         (SDL.createWindow "GameBoy emulator" windowConfig)
         ( \w -> do
