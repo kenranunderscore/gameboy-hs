@@ -28,6 +28,7 @@ renderScreen renderer scr = do
         ( \(y, line) ->
             traverse_
                 ( \(x, color) -> do
+                    -- NOTE: this is VERY slow
                     let rect =
                             SDL.Rectangle
                                 (SDL.P $ SDL.V2 (tileSize * fromIntegral x) (tileSize * fromIntegral y))
@@ -131,6 +132,7 @@ withSdlWindow action = do
 
 withSdlRenderer :: SDL.Window -> (SDL.Renderer -> IO a) -> IO a
 withSdlRenderer window = do
+    -- NOTE: without VSYNC we are dropping keypresses for some reason
     let rendererConfig = SDL.defaultRenderer{SDL.rendererType = SDL.AcceleratedVSyncRenderer}
     Exception.bracket
         (SDL.createRenderer window (-1) rendererConfig)
