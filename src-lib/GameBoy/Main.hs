@@ -38,12 +38,12 @@ mainLoop scrRef buttonsRef = do
         oneFrame 0
         scr <- use preparedScreen
         liftIO $ writeIORef scrRef scr
-        if (frames > 30)
+        if (frames == 59)
             then do
                 now <- liftIO Time.getCurrentTime
                 let
                     dt = Time.diffUTCTime now t
-                    fps = realToFrac frames / dt
+                    fps = realToFrac (frames + 1) / dt
                 liftIO $ putStrLn $ "  FPS = " <> show fps
                 loop 0 now
             else loop (frames + 1) t
@@ -69,7 +69,7 @@ mainLoop scrRef buttonsRef = do
         oneFrame (n + cycles + interruptCycles)
     syncInput = do
         buttons <- liftIO $ STM.readTVarIO buttonsRef
-        unless (Set.null buttons) (liftIO $ print buttons)
+        -- unless (Set.null buttons) (liftIO $ print buttons)
         assign' (memoryBus % gamepadState) buttons
 
 -- snapshotBackgroundArea = do
