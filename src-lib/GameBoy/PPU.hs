@@ -98,24 +98,18 @@ type Tile = Vector (Vector Color)
 data FlipMode = FlipX | FlipY | FlipBoth | NoFlip
     deriving (Show)
 
-readTile :: MemoryBus -> FlipMode -> U16 -> Tile
-readTile bus flipMode addr =
-    fmap
-        ( \i ->
-            determinePixelColors
-                flipMode
-                (readByte bus (addr + 2 * i))
-                (readByte bus (addr + 2 * i + 1))
-        )
-        (Vector.fromList is)
+readTileRow :: MemoryBus -> FlipMode -> U16 -> Int -> Vector Color
+readTileRow bus flipMode addr row =
+    determinePixelColors
+        flipMode
+        (readByte bus (addr + 2 * i))
+        (readByte bus (addr + 2 * i + 1))
   where
-    is =
-        ( case flipMode of
-            FlipY -> reverse
-            FlipBoth -> reverse
-            _ -> id
-        )
-            [0 .. 7]
+    i = fromIntegral $
+        case flipMode of
+            FlipY -> 7 - row
+            FlipBoth -> 7 - row
+            _ -> row
 
 data ScanlineColors = ScanlineColors
     { _index :: Int
@@ -157,7 +151,7 @@ readScanlineColors bus =
                         tileIdentifier = readByte bus tileIdentifierAddr
                         tileAddr = determineTileAddress tileIdentifier mode
                         rowIndex = ypos `mod` 8
-                        tileColors = readTile bus NoFlip tileAddr Vector.! fromIntegral rowIndex
+                        tileColors = readTileRow bus NoFlip tileAddr (fromIntegral rowIndex)
                     in
                         translateTileColors currentPalette $!
                             tileColors Vector.! fromIntegral (xpos `mod` 8)
@@ -233,13 +227,12 @@ drawSprites = do
             -- FIXME: transparency!
             let
                 tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
-                tile = readTile bus flipMode tileMemStart
+                tileRow = readTileRow bus flipMode tileMemStart (fromIntegral line)
                 dummyPalette = readByte bus $ if Bits.testBit attrs 4 then 0xff49 else 0xff48
             modifying'
                 screen
                 ( \scr ->
                     let
-                        tileRow = tile Vector.! fromIntegral line
                         v = scr Vector.! fromIntegral currentLine
                         v' =
                             v
