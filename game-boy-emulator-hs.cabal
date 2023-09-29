@@ -15,14 +15,14 @@ common warnings
 library
   import:           warnings
   exposed-modules:
-    GameBoy.BitStuff
-    GameBoy.CPU
-    GameBoy.Gamepad
+    -- GameBoy.BitStuff
+    -- GameBoy.CPU
+    -- GameBoy.Gamepad
     GameBoy.Main
-    GameBoy.Memory
-    GameBoy.PPU
-    GameBoy.Render
-    GameBoy.State
+    -- GameBoy.Memory
+    -- GameBoy.PPU
+    -- GameBoy.Render
+    -- GameBoy.State
 
   build-depends:
     , async
