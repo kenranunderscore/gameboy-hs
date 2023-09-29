@@ -1,6 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -14,6 +13,7 @@ import Data.Bits qualified as Bits
 import Data.Int (Int32)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Data.Vector.Mutable qualified as MVector
 import Optics
 
 import GameBoy.BitStuff
@@ -156,7 +156,7 @@ readScanlineColors bus =
                         translateTileColors currentPalette $!
                             tileColors Vector.! fromIntegral (xpos `mod` 8)
                 )
-                [0 .. 159]
+                (Vector.fromList [0 .. 159])
   where
     determineTileMapAddr useWindow =
         tileMapAreaToAddr $
@@ -195,11 +195,11 @@ drawScanline :: GameBoy ()
 drawScanline = do
     bus <- use memoryBus
     let scanlineColors = readScanlineColors bus
-    modifying'
-        screen
-        ( Vector.//
-            [(scanlineColors._index, scanlineColors._colors)]
-        )
+    scr <- use screen
+    v <- Vector.thaw scanlineColors._colors
+    MVector.write scr scanlineColors._index v
+
+-- assign' screen scr
 
 readFlipMode :: U8 -> FlipMode
 readFlipMode spriteAttrs =
@@ -228,25 +228,11 @@ drawSprites = do
             let
                 tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
                 tileRow = readTileRow bus flipMode tileMemStart (fromIntegral line)
-                dummyPalette = readByte bus $ if Bits.testBit attrs 4 then 0xff49 else 0xff48
-            modifying'
-                screen
-                ( \scr ->
-                    let
-                        v = scr Vector.! fromIntegral currentLine
-                        v' =
-                            v
-                                Vector.// ( fmap
-                                                ( \i ->
-                                                    ( fromIntegral x + i
-                                                    , fmap (translateTileColors dummyPalette) tileRow Vector.! i
-                                                    )
-                                                )
-                                                [0 .. 7]
-                                          )
-                    in
-                        scr Vector.// [(fromIntegral currentLine, v')]
-                )
+                palette = readByte bus $ if Bits.testBit attrs 4 then 0xff49 else 0xff48
+            scr <- use screen
+            v <- MVector.read scr (fromIntegral currentLine)
+            forM_ ([0 .. 7] :: [Int]) $ \i -> do
+                MVector.write v (fromIntegral x + i) $ fmap (translateTileColors palette) tileRow Vector.! i
 
 setLcdStatus :: GameBoy ()
 setLcdStatus = do
@@ -275,8 +261,10 @@ setLcdStatus = do
                     assign' (memoryBus % lcdStatus) finalStatus
                 else assign' (memoryBus % lcdStatus) (Bits.clearBit newStatus 2)
         else do
-            assign' screen emptyScreen
-            assign' preparedScreen emptyScreen
+            scr' <- liftIO emptyScreen
+            assign' screen scr'
+            prepared' <- liftIO emptyScreen
+            assign' preparedScreen prepared'
             assign' scanlineCounter 456
             assign' (memoryBus % scanline) 0
             -- TODO refactor mode reading/setting
@@ -298,9 +286,11 @@ updateGraphics cycles = do
                 line <- use (memoryBus % scanline)
                 if
                     | line == 144 -> do
-                        prepared <- use screen
-                        assign' preparedScreen prepared
-                        assign' screen emptyScreen
+                        scr <- use screen
+                        prepared <- use preparedScreen
+                        MVector.copy prepared scr
+                        scr' <- liftIO emptyScreen
+                        assign' screen scr'
                         assign' (memoryBus % interruptFlags % bit 0) True
                     | line > 153 -> do
                         assign' (memoryBus % scanline) 0

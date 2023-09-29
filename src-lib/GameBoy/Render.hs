@@ -7,12 +7,11 @@ module GameBoy.Render where
 
 import Control.Exception qualified as Exception
 import Control.Monad
-import Control.Monad.IO.Class (MonadIO)
 import Data.Foldable
 import Data.IORef
 import Data.Set qualified as Set
 import Data.Time qualified as Time
-import Data.Vector qualified as Vector
+import Data.Vector.Mutable qualified as MVector
 import SDL (($=))
 import SDL qualified
 
@@ -21,24 +20,20 @@ import GameBoy.State
 
 tileSize = 6
 
-renderScreen :: MonadIO m => SDL.Renderer -> InMemoryScreen -> m ()
+renderScreen :: SDL.Renderer -> InMemoryScreen -> IO ()
 renderScreen renderer scr = do
     SDL.clear renderer
-    traverse_
-        ( \(y, line) ->
-            traverse_
-                ( \(x, color) -> do
-                    -- NOTE: this is VERY slow
-                    let rect =
-                            SDL.Rectangle
-                                (SDL.P $ SDL.V2 (tileSize * fromIntegral x) (tileSize * fromIntegral y))
-                                (SDL.V2 tileSize tileSize)
-                    SDL.rendererDrawColor renderer $= getColor color
-                    SDL.fillRect renderer (Just rect)
-                )
-                (Vector.indexed line)
-        )
-        (Vector.indexed scr)
+    forM_ [0 :: Int .. MVector.length scr - 1] $ \y -> do
+        line <- MVector.read scr y
+        forM_ [0 :: Int .. MVector.length line - 1] $ \x -> do
+            color <- MVector.read line x
+            -- NOTE: this is VERY slow
+            let rect =
+                    SDL.Rectangle
+                        (SDL.P $ SDL.V2 (tileSize * fromIntegral x) (tileSize * fromIntegral y))
+                        (SDL.V2 tileSize tileSize)
+            SDL.rendererDrawColor renderer $= getColor color
+            SDL.fillRect renderer (Just rect)
     SDL.present renderer
   where
     getColor = \case

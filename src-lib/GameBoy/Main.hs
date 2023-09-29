@@ -110,11 +110,12 @@ main = do
     case args of
         [] -> fail "need path to ROM as first argument"
         (cartridgePath : _) -> do
-            scrRef <- newIORef emptyScreen
+            scrRef <- newIORef =<< emptyScreen
             buttonsRef <- STM.newTVarIO noButtonsPressed
             game <- Async.async $ do
                 bus <- initializeMemoryBus cartridgePath
-                void $ execStateT (mainLoop scrRef buttonsRef) (mkInitialState bus)
+                initialState <- mkInitialState bus
+                void $ execStateT (mainLoop scrRef buttonsRef) initialState
             graphics <-
                 Async.asyncBound $
                     Render.runGraphics (STM.atomically . STM.writeTVar buttonsRef) scrRef

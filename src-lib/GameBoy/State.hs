@@ -8,8 +8,8 @@
 module GameBoy.State where
 
 import Control.Monad.State.Strict
-import Data.Vector (Vector)
-import Data.Vector qualified as Vector
+import Data.Vector.Mutable (IOVector)
+import Data.Vector.Mutable qualified as MVector
 import Optics
 
 import GameBoy.BitStuff
@@ -63,12 +63,11 @@ instance Show Registers where
         ]
 {- FOURMOLU_ENABLE -}
 
-type InMemoryScreen = Vector (Vector U8)
+type InMemoryScreen = IOVector (IOVector U8)
 
-emptyScreen :: InMemoryScreen
-emptyScreen = Vector.replicate 144 emptyLine
-  where
-    emptyLine = Vector.replicate 160 0
+emptyScreen :: IO InMemoryScreen
+emptyScreen =
+    MVector.replicate 144 =<< MVector.replicate 160 0
 
 data CPUState = CPUState
     { _registers :: Registers
@@ -81,7 +80,6 @@ data CPUState = CPUState
     , _preparedScreen :: InMemoryScreen
     , _halted :: Bool
     }
-    deriving stock (Show)
 
 makeLenses ''CPUState
 
@@ -91,9 +89,21 @@ programCounter = registers % pc
 stackPointer :: Lens' CPUState U16
 stackPointer = registers % sp
 
-mkInitialState :: MemoryBus -> CPUState
-mkInitialState bus =
-    CPUState initialRegisters bus 0 1024 True 456 emptyScreen emptyScreen False
+mkInitialState :: MemoryBus -> IO CPUState
+mkInitialState bus = do
+    scr <- emptyScreen
+    scr' <- emptyScreen
+    pure $
+        CPUState
+            initialRegisters
+            bus
+            0
+            1024
+            True
+            456
+            scr
+            scr'
+            False
   where
     initialRegisters =
         Registers
