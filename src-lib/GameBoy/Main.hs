@@ -8,7 +8,6 @@ import Control.Concurrent.STM qualified as STM
 import Control.Monad
 import Control.Monad.State.Strict
 import Data.IORef
-import Data.Set qualified as Set
 import Data.Time qualified as Time
 import Optics
 import System.Environment qualified as Environment
