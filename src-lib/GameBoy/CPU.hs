@@ -105,11 +105,36 @@ setRegisterM r n = modifyRegistersM $ setRegister r n
 data TargetRegister16 = BC | DE | HL
     deriving stock (Show)
 
-target16L :: TargetRegister16 -> Lens' Registers U16
-target16L = \case
-    BC -> bc
-    DE -> de
-    HL -> hl
+readRegister16 :: TargetRegister16 -> Registers -> U16
+readRegister16 rr rs =
+    case rr of
+        BC -> bc rs
+        DE -> de rs
+        HL -> hl rs
+
+readRegister16M :: TargetRegister16 -> GameBoy U16
+readRegister16M rr = do
+    rs <- gets (._registers)
+    pure $ readRegister16 rr rs
+
+-- TODO: try out using set* as primitive operation
+modifyRegister16 :: TargetRegister16 -> (U16 -> U16) -> Registers -> Registers
+modifyRegister16 rr f rs =
+    let val = f $ readRegister16 rr rs
+    in case rr of
+        BC -> setBC val rs
+        DE -> setDE val rs
+        HL -> setHL val rs
+
+-- TODO: try out using set* as primitive operation
+modifyRegister16M :: TargetRegister16 -> (U16 -> U16) -> GameBoy ()
+modifyRegister16M r f = modifyRegistersM $ modifyRegister16 r f
+
+setRegister16 :: TargetRegister16 -> U16 -> Registers -> Registers
+setRegister16 rr = modifyRegister16 rr . const
+
+setRegister16M :: TargetRegister16 -> U16 -> GameBoy ()
+setRegister16M rr n = modifyRegistersM $ setRegister16 rr n
 
 data FlagCondition = ZUnset | ZSet | CUnset | CSet
 
@@ -1041,10 +1066,10 @@ ld_r_r r r' = modifyRegistersM $ \rs ->
     let val = readRegister r' rs
     in setRegister r val rs
 
-deref :: Lens' Registers U16 -> GameBoy U8
+deref :: TargetRegister16 -> GameBoy U8
 deref rr = do
     s <- get
-    pure $ readByte s._memoryBus (view (registers % rr) s)
+    pure $ readByte s._memoryBus (readRegister16 rr s._registers)
 
 execute :: Instruction -> GameBoy Int
 execute Instruction{tag, baseCycles} =
@@ -1052,10 +1077,10 @@ execute Instruction{tag, baseCycles} =
         NOP ->
             pure baseCycles
         LD_u16 rr n ->
-            exec $ assign' (registers % target16L rr) n
+            exec $ setRegister16M rr n
         LD_deref_rr_A rr -> exec $ do
             rs <- use registers
-            writeMemory (rs ^. target16L rr) (rs ^. a)
+            writeMemory (readRegister16 rr rs) (rs ^. a)
         LD_SP_u16 n ->
             exec $ assign' (registers % sp) n
         LD_u16_SP n -> exec $ do
@@ -1064,40 +1089,28 @@ execute Instruction{tag, baseCycles} =
             writeMemory n lo
             writeMemory (n + 1) hi
         LD_r_HLderef r -> exec $ do
-            n <- deref hl
+            n <- deref HL
             setRegisterM r n
         LD_HLminus_A -> exec $ do
             rs <- use registers
-            writeMemory (rs ^. hl) (rs ^. a)
-            modifying' (registers % hl) (\x -> x - 1)
+            writeMemory (hl rs) (rs ^. a)
+            modifyRegister16M HL (\x -> x - 1)
         LD_HLplus_A -> exec $ do
             rs <- use registers
-            writeMemory (rs ^. hl) (rs ^. a)
-            modifying' (registers % hl) (+ 1)
+            writeMemory (hl rs) (rs ^. a)
+            modifyRegister16M HL (+ 1)
         LD_HLderef_u8 n -> exec $ do
             rs <- use registers
-            writeMemory (rs ^. hl) n
+            writeMemory (hl rs) n
         LD_A_deref rr -> exec $ do
-            n <- deref (target16L rr)
+            n <- deref rr
             assign' (registers % a) n
         LD_A_HLplus -> exec $ do
-            n <- deref hl
-            modifying'
-                registers
-                ( \rs ->
-                    rs
-                        & a !~ n
-                        & hl %!~ (+ 1)
-                )
+            n <- deref HL
+            modifyRegistersM $ setRegister A n . modifyRegister16 HL (+ 1)
         LD_A_HLminus -> exec $ do
-            n <- deref hl
-            modifying'
-                registers
-                ( \rs ->
-                    rs
-                        & a !~ n
-                        & hl %!~ (\x -> x - 1)
-                )
+            n <- deref HL
+            modifyRegistersM $ setRegister A n . modifyRegister16 HL (\x -> x - 1)
         LD_A_FF00plusU8 n -> exec $ do
             modify' $ \s ->
                 s & registers % a !~ readByte s._memoryBus (0xff00 + fromIntegral n)
@@ -1124,10 +1137,10 @@ execute Instruction{tag, baseCycles} =
             writeMemory (0xff00 + fromIntegral n) (s ^. registers % a)
         LD_derefHL r -> exec $ do
             rs <- use registers
-            writeMemory (rs ^. hl) (readRegister r rs)
+            writeMemory (hl rs) (readRegister r rs)
         LD_SP_HL -> exec $ do
             modifying' registers $ \rs ->
-                rs & set sp (view hl rs)
+                rs & set sp (hl rs)
         LD_HL_SP n -> exec $ do
             modifying' registers $ \rs ->
                 let
@@ -1138,7 +1151,7 @@ execute Instruction{tag, baseCycles} =
                     needsCarry = orig .&. 0xff + toU16 (toU8 n) > 0xff
                 in
                     rs
-                        & hl !~ res
+                        & setRegister16 HL res
                         & clearFlag Zero
                         & clearFlag Negative
                         & adjustFlag HalfCarry needsHalfCarry
@@ -1151,7 +1164,7 @@ execute Instruction{tag, baseCycles} =
                         . clearFlag Negative
                         . adjustFlag Zero (not bitIsSet)
         BIT_n_derefHL n -> exec $ do
-            val <- deref hl
+            val <- deref HL
             let bitIsSet = Bits.testBit val n
             modifying' registers $ \rs ->
                 rs
@@ -1206,13 +1219,13 @@ execute Instruction{tag, baseCycles} =
             exec $ modifyProgramCounterM (const n)
         JP_HL -> exec $ do
             modifying' registers $ \rs ->
-                rs & pc !~ view hl rs
+                rs & pc !~ hl rs
         INC r ->
             exec $ inc r
         INC_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 orig = readByte s._memoryBus addr
                 val = orig + 1
             writeMemory addr val
@@ -1223,19 +1236,19 @@ execute Instruction{tag, baseCycles} =
                     . adjustFlag HalfCarry (val .&. 0xf == 0)
                 )
         INC16 rr ->
-            exec $ modifying' (registers % (target16L rr)) (+ 1)
+            exec $ modifyRegister16M rr (+ 1)
         INC_SP ->
             exec $ modifyStackPointerM (+ 1)
         DEC r ->
             exec $ dec r
         DEC16 rr ->
-            exec $ modifying' (registers % (target16L rr)) (\n -> n - 1)
+            exec $ modifyRegister16M rr (\n -> n - 1)
         DEC_SP ->
             exec $ modifyStackPointerM (\x -> x - 1)
         DEC_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 val = readByte s._memoryBus addr - 1
             writeMemory addr val
             modifying'
@@ -1245,17 +1258,17 @@ execute Instruction{tag, baseCycles} =
                     . adjustFlag HalfCarry ((val + 1) .&. 0x0f == 0)
                 )
         PUSH rr -> exec $ do
-            n <- use (registers % target16L rr)
+            n <- readRegister16M rr
             push n
         PUSH_AF -> exec $ do
-            n <- use (registers % af)
-            push n
+            rs <- gets (._registers)
+            push (af rs)
         POP rr -> exec $ do
             n <- pop
-            assign' (registers % target16L rr) n
+            setRegister16M rr n
         POP_AF -> exec $ do
             n <- pop
-            assign' (registers % af) (n .&. 0xfff0)
+            modifyRegistersM $ setAF n
         RLA -> exec $ do
             modifying' registers $ \rs ->
                 let
@@ -1293,23 +1306,23 @@ execute Instruction{tag, baseCycles} =
         OR_u8 n ->
             exec $ or_a_u8 n
         OR_A_HL ->
-            exec $ or_a_u8 =<< deref hl
+            exec $ or_a_u8 =<< deref HL
         AND r ->
             exec $ and_a r
         AND_u8 n ->
             exec $ and_a_u8 n
         AND_A_HL ->
-            exec $ and_a_u8 =<< deref hl
+            exec $ and_a_u8 =<< deref HL
         ADD r ->
             exec $ add_a r
         ADD_u8 n ->
             exec $ add_a_u8 n
         ADD_A_HL ->
-            exec $ add_a_u8 =<< deref hl
+            exec $ add_a_u8 =<< deref HL
         ADD_HL rr ->
-            exec $ add_hl (target16L rr)
+            exec $ add_hl rr
         ADD_HL_SP ->
-            exec $ add_hl sp
+            exec $ add_hl_sp -- TODO: refactor
         ADD_SP n ->
             exec $ add_sp n
         SUB r ->
@@ -1317,31 +1330,31 @@ execute Instruction{tag, baseCycles} =
         SUB_u8 n ->
             exec $ sub_a_u8 n
         SUB_A_HL ->
-            exec $ sub_a_u8 =<< deref hl
+            exec $ sub_a_u8 =<< deref HL
         ADC r ->
             exec $ adc_a r
         ADC_u8 n ->
             exec $ adc_a_u8 n
         ADC_A_HL ->
-            exec $ adc_a_u8 =<< deref hl
+            exec $ adc_a_u8 =<< deref HL
         SBC r ->
             exec $ sbc_a r
         SBC_u8 n ->
             exec $ sbc_a_u8 n
         SBC_A_HL ->
-            exec $ sbc_a_u8 =<< deref hl
+            exec $ sbc_a_u8 =<< deref HL
         CP r ->
             exec $ cp_a r
         CP_u8 n ->
             exec $ cp_a_u8 n
         CP_A_HL ->
-            exec $ cp_a_u8 =<< deref hl
+            exec $ cp_a_u8 =<< deref HL
         XOR r ->
             exec $ xor_a r
         XOR_u8 n ->
             exec $ xor_a_u8 n
         XOR_A_HL ->
-            exec $ xor_a_u8 =<< deref hl
+            exec $ xor_a_u8 =<< deref HL
         RST addr -> exec $ do
             counter <- gets (._registers._pc)
             push counter
@@ -1367,7 +1380,7 @@ execute Instruction{tag, baseCycles} =
             s <- get
             let
                 rs = s ^. registers
-                addr = rs ^. hl
+                addr = hl rs
                 orig = readByte s._memoryBus addr
                 res = Bits.rotate orig 4
             writeMemory addr res
@@ -1384,7 +1397,7 @@ execute Instruction{tag, baseCycles} =
             s <- get
             let
                 rs = s ^. registers
-                addr = rs ^. hl
+                addr = hl rs
                 val = readByte s._memoryBus addr
                 res = Bits.clearBit val n
             writeMemory addr res
@@ -1394,7 +1407,7 @@ execute Instruction{tag, baseCycles} =
             s <- get
             let
                 rs = s ^. registers
-                addr = rs ^. hl
+                addr = hl rs
                 val = readByte s._memoryBus addr
                 res = Bits.setBit val n
             writeMemory addr res
@@ -1412,7 +1425,7 @@ execute Instruction{tag, baseCycles} =
         SRL_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 orig = readByte s._memoryBus addr
                 res = orig .>>. 1
             writeMemory addr res
@@ -1438,7 +1451,7 @@ execute Instruction{tag, baseCycles} =
         RR_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 carry = if hasFlag' Carry s then 1 else 0
                 orig = readByte s._memoryBus addr
                 carry' = Bits.testBit orig 0
@@ -1465,7 +1478,7 @@ execute Instruction{tag, baseCycles} =
         RRC_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 orig = readByte s._memoryBus addr
                 carry = Bits.testBit orig 0
                 res = Bits.rotateR orig 1
@@ -1492,7 +1505,7 @@ execute Instruction{tag, baseCycles} =
         RL_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 orig = readByte s._memoryBus addr
                 carry = if hasFlag' Carry s then 1 else 0
                 carry' = Bits.testBit orig 7
@@ -1519,7 +1532,7 @@ execute Instruction{tag, baseCycles} =
         RLC_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 orig = readByte s._memoryBus addr
                 carry = Bits.testBit orig 7
                 res = Bits.rotateL orig 1
@@ -1545,7 +1558,7 @@ execute Instruction{tag, baseCycles} =
         SLA_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 orig = readByte s._memoryBus addr
                 carry = Bits.testBit orig 7
                 res = Bits.shiftL orig 1
@@ -1572,7 +1585,7 @@ execute Instruction{tag, baseCycles} =
         SRA_derefHL -> exec $ do
             s <- get
             let
-                addr = s ^. registers % hl
+                addr = hl s._registers
                 orig = readByte s._memoryBus addr
                 carry = Bits.testBit orig 0
                 msb = orig .&. 0x80
@@ -1678,22 +1691,37 @@ daa = do
                     . adjustFlag Carry setCarry
                     . clearFlag HalfCarry
 
-add_hl :: Lens' Registers U16 -> GameBoy ()
-add_hl rr = do
-    modifying' registers $ \rs ->
-        let
-            orig = view hl rs
-            val = view rr rs
-            res' = fromIntegral @_ @U32 orig + fromIntegral val
-            res = fromIntegral res'
-            needsCarry = res' > 0xffff
-            needsHalfCarry = fromIntegral val .&. 0xfff > res' .&. 0xfff
-        in
-            rs
-                & hl !~ res
-                & clearFlag Negative
-                & adjustFlag HalfCarry needsHalfCarry
-                & adjustFlag Carry needsCarry
+add_hl :: TargetRegister16 -> GameBoy ()
+add_hl rr = modifying' registers $ \rs ->
+    let
+        orig = hl rs
+        val = readRegister16 rr rs
+        res' = fromIntegral @_ @U32 orig + fromIntegral val
+        res = fromIntegral res'
+        needsCarry = res' > 0xffff
+        needsHalfCarry = fromIntegral val .&. 0xfff > res' .&. 0xfff
+    in
+        rs
+            & setRegister16 HL res
+            & clearFlag Negative
+            & adjustFlag HalfCarry needsHalfCarry
+            & adjustFlag Carry needsCarry
+
+add_hl_sp :: GameBoy ()
+add_hl_sp = modifying' registers $ \rs ->
+    let
+        orig = hl rs
+        val = rs._sp
+        res' = fromIntegral @_ @U32 orig + fromIntegral val
+        res = fromIntegral res'
+        needsCarry = res' > 0xffff
+        needsHalfCarry = fromIntegral val .&. 0xfff > res' .&. 0xfff
+    in
+        rs
+            & setRegister16 HL res
+            & clearFlag Negative
+            & adjustFlag HalfCarry needsHalfCarry
+            & adjustFlag Carry needsCarry
 
 or_a :: TargetRegister -> GameBoy ()
 or_a r = do

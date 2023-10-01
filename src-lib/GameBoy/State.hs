@@ -8,6 +8,7 @@
 
 module GameBoy.State where
 
+import Data.Bits ((.&.))
 import Control.Monad.State.Strict
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
@@ -34,33 +35,47 @@ data Registers = Registers
 
 makeLenses ''Registers
 
-combineRegisters :: Lens' Registers U8 -> Lens' Registers U8 -> Lens' Registers U16
-combineRegisters hiL loL =
-    lens
-        (\r -> combineBytes (view hiL r) (view loL r))
-        (\r n -> let (hi, lo) = splitIntoBytes n in r & hiL !~ hi & loL !~ lo)
+bc ::  Registers -> U16
+bc rs = combineBytes rs._b rs._c
 
-bc :: Lens' Registers U16
-bc = combineRegisters b c
+setBC :: U16 -> Registers  -> Registers
+setBC n rs =
+    let (hi, lo) = splitIntoBytes n
+    in rs{_b = hi, _c = lo}
 
-de :: Lens' Registers U16
-de = combineRegisters d e
+de :: Registers -> U16
+de rs = combineBytes rs._d rs._e
 
-hl :: Lens' Registers U16
-hl = combineRegisters h l
+setDE :: U16 -> Registers  -> Registers
+setDE n rs =
+    let (hi, lo) = splitIntoBytes n
+    in rs{_d = hi, _e = lo}
 
-af :: Lens' Registers U16
-af = combineRegisters a f
+hl :: Registers -> U16
+hl rs = combineBytes rs._h rs._l
+
+setHL :: U16 -> Registers  -> Registers
+setHL n rs =
+    let (hi, lo) = splitIntoBytes n
+    in rs{_h = hi, _l = lo}
+
+af :: Registers -> U16
+af rs = combineBytes rs._a rs._f
+
+setAF :: U16 -> Registers  -> Registers
+setAF n rs =
+    let (hi, lo) = splitIntoBytes (0xfff0 .&. n)
+    in rs{_a = hi, _f = lo}
 
 {- FOURMOLU_DISABLE -}
 instance Show Registers where
-    show r = mconcat
-        [ "AF = " , toHex (view af r)
-        , " | BC = " , toHex (view bc r)
-        , " | DE = " , toHex (view de r)
-        , " | HL = " , toHex (view hl r)
-        , " | PC = " , toHex (view pc r)
-        , " | SP = " , toHex (view sp r)
+    show rs = mconcat
+        [ "AF = " , toHex (af rs)
+        , " | BC = " , toHex (bc rs)
+        , " | DE = " , toHex (de rs)
+        , " | HL = " , toHex (hl rs)
+        , " | PC = " , toHex rs._pc
+        , " | SP = " , toHex rs._sp
         ]
 {- FOURMOLU_ENABLE -}
 
