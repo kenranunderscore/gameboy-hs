@@ -131,8 +131,11 @@ spriteUsesTwoTiles bus = Bits.testBit (lcdc bus) 2
 objEnabled :: MemoryBus -> Bool
 objEnabled bus = Bits.testBit (lcdc bus) 1
 
-lcdStatus :: Lens' MemoryBus U8
-lcdStatus = io % byte 0x41
+lcdStatus :: MemoryBus -> U8
+lcdStatus bus = readByte bus 0xff41
+
+setSTAT :: U8 -> MemoryBus -> MemoryBus
+setSTAT n bus = bus{_io = setByteAt 0x41 bus._io n}
 
 viewportY :: MemoryBus -> U8
 viewportY bus = readByte bus 0xff42
@@ -174,11 +177,27 @@ bgPalette bus = readByte bus 0xff47
 timerEnable :: MemoryBus -> Bool
 timerEnable bus = Bits.testBit (tac bus) 2
 
-interruptFlags :: Lens' MemoryBus U8
-interruptFlags = io % byte 0x0f
+interruptFlags :: MemoryBus -> U8
+interruptFlags bus = readByte bus 0xff0f
 
-timerIntRequested :: Lens' MemoryBus Bool
-timerIntRequested = interruptFlags % bit 2
+interruptRequested :: Int -> MemoryBus -> Bool
+interruptRequested interrupt bus =
+    Bits.testBit (interruptFlags bus) interrupt
+
+timerIntRequested :: MemoryBus -> Bool
+timerIntRequested = interruptRequested 2
+
+toggleInterrupt :: Bool -> Int -> MemoryBus -> MemoryBus
+toggleInterrupt enabled interrupt bus =
+    let change = if enabled then Bits.setBit else Bits.clearBit
+        val = change (readByte bus 0xff0f) interrupt
+    in writeByte 0xff0f val bus
+
+requestInterrupt :: Int -> MemoryBus -> MemoryBus
+requestInterrupt = toggleInterrupt True
+
+disableInterrupt :: Int -> MemoryBus -> MemoryBus
+disableInterrupt = toggleInterrupt False
 
 {- FOURMOLU_DISABLE -}
 
@@ -241,22 +260,18 @@ readCartridgeType = \case
     unhandled -> UnhandledCartridgeType unhandled
 
 data CartridgeHeader = CartridgeHeader
-    { _title :: String
-    , _cgb :: U8
-    , _sgb :: U8
-    , _cartridgeType :: CartridgeType
+    { title :: String
+    , cgb :: U8
+    , sgb :: U8
+    , cartridgeType :: CartridgeType
     }
     deriving (Show)
-
-makeLenses ''CartridgeHeader
 
 data Cartridge = Cartridge
-    { _memory :: Memory
-    , _header :: Maybe CartridgeHeader
+    { memory :: Memory
+    , header :: Maybe CartridgeHeader
     }
     deriving (Show)
-
-makeLenses ''Cartridge
 
 readCartridgeHeader :: Memory -> Maybe CartridgeHeader
 readCartridgeHeader mem =
@@ -300,11 +315,11 @@ mkEmptyMemory len =
 initializeMemoryBus :: FilePath -> IO MemoryBus
 initializeMemoryBus path = do
     cart <- loadCartridgeFromFile path
-    case cart._header of
+    case cart.header of
         Nothing -> putStrLn "No cartridge header could be read"
         Just h -> do
-            putStrLn $ "Loaded cartride:  " <> h._title
-            putStrLn $ "Cartridge type:  " <> show h._cartridgeType
-            putStrLn $ "CGB:  " <> toHex h._cgb
-            putStrLn $ "SGB:  " <> toHex h._sgb
-    pure $ set cartridge cart._memory defaultMemoryBus
+            putStrLn $ "Loaded cartride:  " <> h.title
+            putStrLn $ "Cartridge type:  " <> show h.cartridgeType
+            putStrLn $ "CGB:  " <> toHex h.cgb
+            putStrLn $ "SGB:  " <> toHex h.sgb
+    pure $ set cartridge cart.memory defaultMemoryBus

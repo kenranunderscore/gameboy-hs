@@ -231,12 +231,12 @@ drawSprites = do
 setLcdStatus :: GameBoy ()
 setLcdStatus = do
     s <- get
-    let status = s ^. memoryBus % lcdStatus
+    let status = lcdStatus s._memoryBus
     if lcdEnable s._memoryBus -- TODO: check status instead
         then do
             let
                 line = scanline s._memoryBus
-                oldMode = (s ^. memoryBus % lcdStatus) .&. 0b11
+                oldMode = status .&. 0b11
                 (newMode, needStatInterrupt, newStatus) =
                     determineNextLcdStatus (s ^. scanlineCounter) line status
             when (newMode /= oldMode && newMode == 3) $ do
@@ -244,16 +244,16 @@ setLcdStatus = do
                 drawScanline
                 when (objEnabled s._memoryBus) drawSprites
             when (needStatInterrupt && newMode /= oldMode) $
-                assign' (memoryBus % interruptFlags % bit 1) True
+                modifyBusM $ requestInterrupt 1
             compareValue <- gets (lyc . (._memoryBus))
             -- coincidence check
             if line == compareValue
                 then do
                     let finalStatus = Bits.setBit newStatus 2
                     when (Bits.testBit finalStatus 6) $
-                        (assign' (memoryBus % interruptFlags % bit 1) True)
-                    assign' (memoryBus % lcdStatus) finalStatus
-                else assign' (memoryBus % lcdStatus) (Bits.clearBit newStatus 2)
+                        modifyBusM $ requestInterrupt 1
+                    modifyBusM $ setSTAT finalStatus
+                else modifyBusM $ setSTAT (Bits.clearBit newStatus 2)
         else do
             assign' screen emptyScreen
             assign' preparedScreen emptyScreen
@@ -262,7 +262,7 @@ setLcdStatus = do
             -- TODO refactor mode reading/setting
             -- set vblank mode
             let status' = Bits.setBit (Bits.clearBit status 1) 0
-            assign' (memoryBus % lcdStatus) status'
+            modifyBusM $ setSTAT status'
 
 updateGraphics :: Int -> GameBoy ()
 updateGraphics cycles = do
@@ -281,7 +281,7 @@ updateGraphics cycles = do
                         prepared <- use screen
                         assign' preparedScreen prepared
                         assign' screen emptyScreen
-                        assign' (memoryBus % interruptFlags % bit 0) True
+                        modifyBusM $ requestInterrupt 0
                     | line > 153 -> do
                         modifyBusM $ \bus -> bus{_io = setByteAt 0x44 bus._io 0}
                     | otherwise -> pure ()

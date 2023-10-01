@@ -1921,7 +1921,7 @@ updateTimers cycles = do
             if tima s._memoryBus == maxBound
                 then do
                     modifyBusM $ modifyTima (const $ tma s._memoryBus)
-                    assign' (memoryBus % timerIntRequested) True
+                    modifyBusM $ requestInterrupt 2
                 else modifyBusM $ modifyTima (+ 1)
 
 updateDivider :: Int -> GameBoy ()
@@ -1964,8 +1964,8 @@ handleInterrupts = do
     if view masterInterruptEnable s
         then do
             let
-                enabledInterrupts = s ^. memoryBus % ie
-                requestedInterrupts = s ^. memoryBus % interruptFlags
+                enabledInterrupts = s._memoryBus._ie
+                requestedInterrupts = interruptFlags s._memoryBus
             case findInterrupt (filter (Bits.testBit requestedInterrupts) [0 .. 4]) enabledInterrupts of
                 Nothing -> pure 0
                 Just interrupt -> do
@@ -1985,7 +1985,7 @@ handleInterrupts = do
     handleInterrupt interrupt = do
         -- traceM $ "      INTERRUPT " <> show interrupt
         assign' masterInterruptEnable False
-        assign' (memoryBus % interruptFlags % bit interrupt) False
+        modifyBusM $ disableInterrupt interrupt
         counter <- use programCounter
         push counter
         case interrupt of

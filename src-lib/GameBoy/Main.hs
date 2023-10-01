@@ -59,7 +59,7 @@ mainLoop scrRef buttonsRef = do
                     pure cycles
                 else do
                     -- liftIO $ putStrLn "  [HALT]"
-                    when (s ^. memoryBus % interruptFlags > 0) $
+                    when (interruptFlags s._memoryBus > 0) $
                         assign' halted False
                     pure 4
         updateTimers cycles
