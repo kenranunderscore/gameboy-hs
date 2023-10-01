@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -69,7 +70,7 @@ mainLoop scrRef buttonsRef = do
     syncInput = do
         buttons <- liftIO $ STM.readTVarIO buttonsRef
         -- unless (Set.null buttons) (liftIO $ print buttons)
-        assign' (memoryBus % gamepadState) buttons
+        modifyBusM $ \bus -> bus{gamepadState = buttons}
 
 -- snapshotBackgroundArea = do
 --     bus <- use memoryBus

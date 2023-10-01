@@ -1968,7 +1968,7 @@ handleInterrupts = do
     if view masterInterruptEnable s
         then do
             let
-                enabledInterrupts = s._memoryBus._ie
+                enabledInterrupts = s._memoryBus.ie
                 requestedInterrupts = interruptFlags s._memoryBus
             case findInterrupt (filter (Bits.testBit requestedInterrupts) [0 .. 4]) enabledInterrupts of
                 Nothing -> pure 0
