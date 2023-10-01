@@ -8,6 +8,7 @@
 
 module GameBoy.Memory where
 
+import Data.Bits qualified as Bits
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.Vector.Unboxed (Vector)
@@ -115,20 +116,20 @@ readU16 bus addr =
 scanline :: MemoryBus -> U8
 scanline bus = readByte bus 0xff44
 
-lcdc :: Lens' MemoryBus U8
-lcdc = io % byte 0x40
+lcdc :: MemoryBus -> U8
+lcdc bus = readByte bus 0xff40
 
-lcdEnable :: Lens' MemoryBus Bool
-lcdEnable = lcdc % bit 7
+lcdEnable :: MemoryBus -> Bool
+lcdEnable bus = Bits.testBit (lcdc bus) 7
 
-displayWindow :: Lens' MemoryBus Bool
-displayWindow = lcdc % bit 5
+displayWindow :: MemoryBus -> Bool
+displayWindow bus = Bits.testBit (lcdc bus) 5
 
-spriteUsesTwoTiles :: Lens' MemoryBus Bool
-spriteUsesTwoTiles = lcdc % bit 2
+spriteUsesTwoTiles :: MemoryBus -> Bool
+spriteUsesTwoTiles bus = Bits.testBit (lcdc bus) 2
 
-objEnabled :: Lens' MemoryBus Bool
-objEnabled = lcdc % bit 1
+objEnabled :: MemoryBus -> Bool
+objEnabled bus = Bits.testBit (lcdc bus) 1
 
 lcdStatus :: Lens' MemoryBus U8
 lcdStatus = io % byte 0x41

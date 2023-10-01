@@ -23,40 +23,20 @@ import GameBoy.State
 data TileMapArea = Area9800 | Area9C00
     deriving (Show)
 
-tileMapAreaIso :: Iso' Bool TileMapArea
-tileMapAreaIso =
-    iso
-        (\x -> if x then Area9C00 else Area9800)
-        (\case Area9C00 -> True; Area9800 -> False)
+windowTileMapArea :: MemoryBus -> TileMapArea
+windowTileMapArea bus =
+    if Bits.testBit (lcdc bus) 6 then Area9C00 else Area9800
 
-windowTileMapArea :: Lens' MemoryBus TileMapArea
-windowTileMapArea = lcdc % bit 6 % tileMapAreaIso
+bgTileMapArea :: MemoryBus -> TileMapArea
+bgTileMapArea bus =
+    if Bits.testBit (lcdc bus) 3 then Area9C00 else Area9800
 
 data AddressingMode = Mode8000 | Mode8800
     deriving (Show)
 
-addressingModeIso :: Iso' Bool AddressingMode
-addressingModeIso =
-    iso
-        (\x -> if x then Mode8000 else Mode8800)
-        (\case Mode8000 -> True; Mode8800 -> False)
-
-addressingMode :: Lens' MemoryBus AddressingMode
-addressingMode = lcdc % bit 4 % addressingModeIso
-
-bgTileMapArea :: Lens' MemoryBus TileMapArea
-bgTileMapArea = lcdc % bit 3 % tileMapAreaIso
-
-data Priority = PixelPriority | IgnorePixelPriority
-
-priorityIso :: Iso' Bool Priority
-priorityIso =
-    iso
-        (\x -> if x then IgnorePixelPriority else PixelPriority)
-        (\case IgnorePixelPriority -> True; PixelPriority -> False)
-
-bgWindowMasterPriority :: Lens' MemoryBus Priority
-bgWindowMasterPriority = lcdc % bit 0 % priorityIso
+addressingMode :: MemoryBus -> AddressingMode
+addressingMode bus =
+    if Bits.testBit (lcdc bus) 4 then Mode8000 else Mode8800
 
 data Color = Color0 | Color1 | Color2 | Color3
     deriving (Eq, Show, Enum)
@@ -132,9 +112,9 @@ readScanlineColors bus =
         x = bus ^. viewportX
         wy = bus ^. windowY
         wx = bus ^. windowX - 7
-        mode = bus ^. addressingMode
+        mode = addressingMode bus
         currentLine = scanline bus
-        useWindow = view displayWindow bus && wy <= currentLine
+        useWindow = displayWindow bus && wy <= currentLine
         tileMapStart = determineTileMapAddr useWindow
         ypos = if useWindow then currentLine - wy else currentLine + y
         vertTileIndexOffset = (toU16 ypos .>>. 3) .<<. 5
@@ -161,8 +141,8 @@ readScanlineColors bus =
     determineTileMapAddr useWindow =
         tileMapAreaToAddr $
             if useWindow
-                then bus ^. windowTileMapArea
-                else bus ^. bgTileMapArea
+                then windowTileMapArea bus
+                else bgTileMapArea bus
     tileMapAreaToAddr = \case
         Area9800 -> 0x9800
         Area9C00 -> 0x9C00
@@ -221,7 +201,7 @@ drawSprites = do
             attrs = bus ^. oam % byte (spriteIndex + 3)
             flipMode = readFlipMode attrs
             currentLine = fromIntegral $ scanline bus
-            height = if (bus ^. spriteUsesTwoTiles) then 16 else 8
+            height = if spriteUsesTwoTiles bus then 16 else 8
             line = currentLine - y
         when (line >= 0 && line < height) $ do
             -- FIXME: transparency!
@@ -252,7 +232,7 @@ setLcdStatus :: GameBoy ()
 setLcdStatus = do
     s <- get
     let status = s ^. memoryBus % lcdStatus
-    if s ^. memoryBus % lcdEnable -- TODO: check status instead
+    if lcdEnable s._memoryBus -- TODO: check status instead
         then do
             let
                 line = scanline s._memoryBus
@@ -262,7 +242,7 @@ setLcdStatus = do
             when (newMode /= oldMode && newMode == 3) $ do
                 -- FIXME/TODO: check BG priority here!
                 drawScanline
-                when (s ^. memoryBus % objEnabled) drawSprites
+                when (objEnabled s._memoryBus) drawSprites
             when (needStatInterrupt && newMode /= oldMode) $
                 assign' (memoryBus % interruptFlags % bit 1) True
             compareValue <- use (memoryBus % lyc)
@@ -288,7 +268,7 @@ updateGraphics :: Int -> GameBoy ()
 updateGraphics cycles = do
     setLcdStatus
     s <- get
-    when (s ^. memoryBus % lcdEnable) $ do
+    when (lcdEnable s._memoryBus) $ do
         let counter = s ^. scanlineCounter - cycles
         if counter > 0
             then assign' scanlineCounter counter
