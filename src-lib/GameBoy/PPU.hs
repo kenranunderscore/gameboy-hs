@@ -14,7 +14,6 @@ import Data.Bits qualified as Bits
 import Data.Int (Int32)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Optics
 
 import GameBoy.BitStuff
 import GameBoy.Memory
@@ -92,11 +91,9 @@ readTileRow bus flipMode addr row =
             _ -> row
 
 data ScanlineColors = ScanlineColors
-    { _index :: Int
-    , _colors :: Vector U8
+    { index :: Int
+    , colors :: Vector U8
     }
-
-makeLenses ''ScanlineColors
 
 translateTileColors :: U8 -> Color -> U8
 translateTileColors palette = \case
@@ -173,13 +170,9 @@ determineNextLcdStatus counter line status =
 
 drawScanline :: GameBoy ()
 drawScanline = do
-    bus <- use memoryBus
+    bus <- gets (._memoryBus)
     let scanlineColors = readScanlineColors bus
-    modifying'
-        screen
-        ( Vector.//
-            [(scanlineColors._index, scanlineColors._colors)]
-        )
+    modifyScreenM (Vector.// [(scanlineColors.index, scanlineColors.colors)])
 
 readFlipMode :: U8 -> FlipMode
 readFlipMode spriteAttrs =
@@ -191,7 +184,7 @@ readFlipMode spriteAttrs =
 
 drawSprites :: GameBoy ()
 drawSprites = do
-    bus <- use memoryBus
+    bus <- gets (._memoryBus)
     forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
         let
             spriteIndex = sprite * 4 -- 4 bytes per sprite
@@ -209,24 +202,21 @@ drawSprites = do
                 tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
                 tileRow = readTileRow bus flipMode tileMemStart (fromIntegral line)
                 dummyPalette = readByte bus $ if Bits.testBit attrs 4 then 0xff49 else 0xff48
-            modifying'
-                screen
-                ( \scr ->
-                    let
-                        v = scr Vector.! fromIntegral currentLine
-                        v' =
-                            v
-                                Vector.// ( fmap
-                                                ( \i ->
-                                                    ( fromIntegral x + i
-                                                    , fmap (translateTileColors dummyPalette) tileRow Vector.! i
-                                                    )
+            modifyScreenM $ \scr ->
+                let
+                    v = scr Vector.! fromIntegral currentLine
+                    v' =
+                        v
+                            Vector.// ( fmap
+                                            ( \i ->
+                                                ( fromIntegral x + i
+                                                , fmap (translateTileColors dummyPalette) tileRow Vector.! i
                                                 )
-                                                [0 .. 7]
-                                          )
-                    in
-                        scr Vector.// [(fromIntegral currentLine, v')]
-                )
+                                            )
+                                            [0 .. 7]
+                                      )
+                in
+                    scr Vector.// [(fromIntegral currentLine, v')]
 
 setLcdStatus :: GameBoy ()
 setLcdStatus = do
@@ -238,26 +228,31 @@ setLcdStatus = do
                 line = scanline s._memoryBus
                 oldMode = status .&. 0b11
                 (newMode, needStatInterrupt, newStatus) =
-                    determineNextLcdStatus (s ^. scanlineCounter) line status
+                    determineNextLcdStatus s._scanlineCounter line status
             when (newMode /= oldMode && newMode == 3) $ do
                 -- FIXME/TODO: check BG priority here!
                 drawScanline
                 when (objEnabled s._memoryBus) drawSprites
             when (needStatInterrupt && newMode /= oldMode) $
-                modifyBusM $ requestInterrupt 1
+                modifyBusM $
+                    requestInterrupt 1
             compareValue <- gets (lyc . (._memoryBus))
             -- coincidence check
             if line == compareValue
                 then do
                     let finalStatus = Bits.setBit newStatus 2
                     when (Bits.testBit finalStatus 6) $
-                        modifyBusM $ requestInterrupt 1
+                        modifyBusM $
+                            requestInterrupt 1
                     modifyBusM $ setSTAT finalStatus
                 else modifyBusM $ setSTAT (Bits.clearBit newStatus 2)
         else do
-            assign' screen emptyScreen
-            assign' preparedScreen emptyScreen
-            assign' scanlineCounter 456
+            modify' $ \s' ->
+                s'
+                    { _screen = emptyScreen
+                    , _preparedScreen = emptyScreen
+                    , _scanlineCounter = 456
+                    }
             modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io 0} -- TODO: DIV
             -- TODO refactor mode reading/setting
             -- set vblank mode
@@ -269,18 +264,16 @@ updateGraphics cycles = do
     setLcdStatus
     s <- get
     when (lcdEnable s._memoryBus) $ do
-        let counter = s ^. scanlineCounter - cycles
+        let counter = s._scanlineCounter - cycles
         if counter > 0
-            then assign' scanlineCounter counter
+            then modify' $ \s' -> s'{_scanlineCounter = counter}
             else do
-                modifying' scanlineCounter (+ 456)
+                modify' $ \s' -> s'{_scanlineCounter = s'._scanlineCounter + 456}
                 modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io (readByte bus 0xff44 + 1)} -- TODO: DIV
                 line <- gets (scanline . (._memoryBus))
                 if
                     | line == 144 -> do
-                        prepared <- use screen
-                        assign' preparedScreen prepared
-                        assign' screen emptyScreen
+                        modify' $ \s' -> s'{_screen = emptyScreen, _preparedScreen = s'._screen}
                         modifyBusM $ requestInterrupt 0
                     | line > 153 -> do
                         modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io 0}

@@ -123,4 +123,7 @@ modifyBusM fn = modify' $ \s -> s{_memoryBus = fn s._memoryBus}
 modifyRegistersM :: (Registers -> Registers) -> GameBoy ()
 modifyRegistersM fn = modify' $ \s -> s{_registers = fn s._registers}
 
+modifyScreenM :: (InMemoryScreen -> InMemoryScreen) -> GameBoy ()
+modifyScreenM f = modify' $ \s -> s{_screen = f s._screen}
+
 type GameBoy a = StateT CPUState IO a
