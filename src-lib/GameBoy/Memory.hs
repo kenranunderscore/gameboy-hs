@@ -134,47 +134,51 @@ objEnabled bus = Bits.testBit (lcdc bus) 1
 lcdStatus :: Lens' MemoryBus U8
 lcdStatus = io % byte 0x41
 
-viewportY :: Lens' MemoryBus U8
-viewportY = io % byte 0x42
+viewportY :: MemoryBus -> U8
+viewportY bus = readByte bus 0xff42
 
-viewportX :: Lens' MemoryBus U8
-viewportX = io % byte 0x43
+viewportX :: MemoryBus -> U8
+viewportX bus = readByte bus 0xff43
 
-lyc :: Lens' MemoryBus U8
-lyc = io % byte 0x45
+lyc :: MemoryBus -> U8
+lyc bus = readByte bus 0xff45
 
-windowY :: Lens' MemoryBus U8
-windowY = io % byte 0x4a
+windowY :: MemoryBus -> U8
+windowY bus = readByte bus 0xff4a
 
-windowX :: Lens' MemoryBus U8
-windowX = io % byte 0x4b
+windowX :: MemoryBus -> U8
+windowX bus = readByte bus 0x4ffb
 
-divider :: Lens' MemoryBus U8
-divider = io % byte 0x04
+modifyDivider :: (U8 -> U8) -> MemoryBus -> MemoryBus
+modifyDivider f bus =
+    let orig = readByte bus 0xff04
+    in bus{_io = setByteAt 0x04 bus._io (f orig)}
 
-tima :: Lens' MemoryBus U8
-tima = io % byte 0x05
+tima :: MemoryBus -> U8
+tima bus = readByte bus 0xff05
 
-tma :: Lens' MemoryBus U8
-tma = io % byte 0x06
+modifyTima :: (U8 -> U8) -> MemoryBus -> MemoryBus
+modifyTima f bus =
+    let orig = readByte bus 0xff05
+    in bus{_io = setByteAt 0x05 bus._io (f orig)}
 
-tac :: Lens' MemoryBus U8
-tac = io % byte 0x07
+tma :: MemoryBus -> U8
+tma bus = readByte bus 0xff06
 
-bgPalette :: Lens' MemoryBus U8
-bgPalette = io % byte 0x47
+tac :: MemoryBus -> U8
+tac bus = readByte bus 0xff07
 
-timerEnable :: Lens' MemoryBus Bool
-timerEnable = tac % bit 2
+bgPalette :: MemoryBus -> U8
+bgPalette bus = readByte bus 0xff47
+
+timerEnable :: MemoryBus -> Bool
+timerEnable bus = Bits.testBit (tac bus) 2
 
 interruptFlags :: Lens' MemoryBus U8
 interruptFlags = io % byte 0x0f
 
 timerIntRequested :: Lens' MemoryBus Bool
 timerIntRequested = interruptFlags % bit 2
-
-dma :: Lens' MemoryBus U8
-dma = io % byte 0x46
 
 {- FOURMOLU_DISABLE -}
 

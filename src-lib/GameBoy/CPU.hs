@@ -946,9 +946,9 @@ writeMemory addr n =
         -- HACK: "listen" for changes that potentially cascade to other state
         -- changes here
         0xff07 -> do
-            freq <- use (memoryBus % timerFrequency)
+            freq <- gets (timerFrequency . (._memoryBus))
             modifying' memoryBus (writeByte addr n)
-            freq' <- use (memoryBus % timerFrequency)
+            freq' <- gets (timerFrequency . (._memoryBus))
             when (freq' /= freq) $
                 assign' timerCounter (counterFromFrequency freq')
         _ -> modifying' memoryBus (writeByte addr n)
@@ -1912,17 +1912,17 @@ updateTimers :: Int -> GameBoy ()
 updateTimers cycles = do
     updateDivider cycles
     s <- get
-    when (s ^. memoryBus % timerEnable) $ do
+    when (timerEnable s._memoryBus) $ do
         let counter' = view timerCounter s - cycles
         assign' timerCounter counter'
         when (counter' <= 0) $ do
-            freq <- use (memoryBus % timerFrequency)
+            freq <- gets (timerFrequency . (._memoryBus))
             assign' timerCounter (counterFromFrequency freq)
-            if s ^. memoryBus % tima == maxBound
+            if tima s._memoryBus == maxBound
                 then do
-                    assign' (memoryBus % tima) (s ^. memoryBus % tma)
+                    modifyBusM $ modifyTima (const $ tma s._memoryBus)
                     assign' (memoryBus % timerIntRequested) True
-                else modifying' (memoryBus % tima) (+ 1)
+                else modifyBusM $ modifyTima (+ 1)
 
 updateDivider :: Int -> GameBoy ()
 updateDivider cycles = do
@@ -1931,7 +1931,7 @@ updateDivider cycles = do
     assign' dividerCounter counter'
     when (counter' >= 255) $ do
         assign' dividerCounter 0
-        modifying' (memoryBus % divider) (+ 1)
+        modifyBusM $ modifyDivider (+ 1)
 
 data TimerFrequency
     = Freq4K
@@ -1955,8 +1955,8 @@ counterFromFrequency = \case
     Freq64K -> 64
     Freq256K -> 16
 
-timerFrequency :: Getter MemoryBus TimerFrequency
-timerFrequency = tac % to readTimerFrequency
+timerFrequency :: MemoryBus -> TimerFrequency
+timerFrequency = readTimerFrequency . tac
 
 handleInterrupts :: GameBoy Int
 handleInterrupts = do

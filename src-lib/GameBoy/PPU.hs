@@ -108,17 +108,17 @@ translateTileColors palette = \case
 readScanlineColors :: MemoryBus -> ScanlineColors
 readScanlineColors bus =
     let
-        y = bus ^. viewportY
-        x = bus ^. viewportX
-        wy = bus ^. windowY
-        wx = bus ^. windowX - 7
+        y = viewportY bus
+        x = viewportX bus
+        wy = windowY bus
+        wx = windowX bus - 7
         mode = addressingMode bus
         currentLine = scanline bus
         useWindow = displayWindow bus && wy <= currentLine
         tileMapStart = determineTileMapAddr useWindow
         ypos = if useWindow then currentLine - wy else currentLine + y
         vertTileIndexOffset = (toU16 ypos .>>. 3) .<<. 5
-        currentPalette = bus ^. bgPalette
+        currentPalette = bgPalette bus
     in
         -- TODO: "preload" only the necessary tiles, _then_ loop
         ScanlineColors (fromIntegral currentLine) $
@@ -245,7 +245,7 @@ setLcdStatus = do
                 when (objEnabled s._memoryBus) drawSprites
             when (needStatInterrupt && newMode /= oldMode) $
                 assign' (memoryBus % interruptFlags % bit 1) True
-            compareValue <- use (memoryBus % lyc)
+            compareValue <- gets (lyc . (._memoryBus))
             -- coincidence check
             if line == compareValue
                 then do
