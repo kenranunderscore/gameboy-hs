@@ -133,7 +133,7 @@ readScanlineColors bus =
         wy = bus ^. windowY
         wx = bus ^. windowX - 7
         mode = bus ^. addressingMode
-        currentLine = bus ^. scanline
+        currentLine = scanline bus
         useWindow = view displayWindow bus && wy <= currentLine
         tileMapStart = determineTileMapAddr useWindow
         ypos = if useWindow then currentLine - wy else currentLine + y
@@ -220,7 +220,7 @@ drawSprites = do
             tileOffset = bus ^. oam % byte (spriteIndex + 2)
             attrs = bus ^. oam % byte (spriteIndex + 3)
             flipMode = readFlipMode attrs
-            currentLine = fromIntegral $ bus ^. scanline
+            currentLine = fromIntegral $ scanline bus
             height = if (bus ^. spriteUsesTwoTiles) then 16 else 8
             line = currentLine - y
         when (line >= 0 && line < height) $ do
@@ -255,7 +255,7 @@ setLcdStatus = do
     if s ^. memoryBus % lcdEnable -- TODO: check status instead
         then do
             let
-                line = s ^. memoryBus % scanline
+                line = scanline s._memoryBus
                 oldMode = (s ^. memoryBus % lcdStatus) .&. 0b11
                 (newMode, needStatInterrupt, newStatus) =
                     determineNextLcdStatus (s ^. scanlineCounter) line status
@@ -278,7 +278,7 @@ setLcdStatus = do
             assign' screen emptyScreen
             assign' preparedScreen emptyScreen
             assign' scanlineCounter 456
-            assign' (memoryBus % scanline) 0
+            modifyBusM $ \bus -> bus{_io = setByteAt 0x44 bus._io 0}
             -- TODO refactor mode reading/setting
             -- set vblank mode
             let status' = Bits.setBit (Bits.clearBit status 1) 0
@@ -294,8 +294,8 @@ updateGraphics cycles = do
             then assign' scanlineCounter counter
             else do
                 modifying' scanlineCounter (+ 456)
-                modifying' (memoryBus % scanline) (+ 1)
-                line <- use (memoryBus % scanline)
+                modifyBusM $ \bus -> bus{_io = setByteAt 0x44 bus._io (readByte bus 0xff44 + 1)}
+                line <- gets (scanline . (._memoryBus))
                 if
                     | line == 144 -> do
                         prepared <- use screen
@@ -303,5 +303,5 @@ updateGraphics cycles = do
                         assign' screen emptyScreen
                         assign' (memoryBus % interruptFlags % bit 0) True
                     | line > 153 -> do
-                        assign' (memoryBus % scanline) 0
+                        modifyBusM $ \bus -> bus{_io = setByteAt 0x44 bus._io 0}
                     | otherwise -> pure ()

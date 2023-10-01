@@ -51,6 +51,10 @@ byte n =
         (\mem -> mem Vector.! fromIntegral n)
         (\mem x -> mem Vector.// [(fromIntegral n, x)])
 
+-- | Set the n-th byte of a memory array to a fixed value.
+setByteAt :: U16 -> Memory -> U8 -> Memory
+setByteAt addr mem val = mem Vector.// [(fromIntegral addr, val)]
+
 readByte :: MemoryBus -> U16 -> U8
 readByte bus addr
     | addr < 0x8000 = bus._cartridge Vector.! fromIntegral addr
@@ -77,29 +81,29 @@ writeByte addr n bus
     -- writes to cartridge ROM cannot happen, but can be used to trigger MBC
     -- interaction
     | addr < 0x8000 = bus
-    | addr < 0xa000 = writeTo vram 0x8000
-    | addr < 0xc000 = writeTo sram 0xa000
-    | addr < 0xe000 = writeTo wram 0xc000
-    | addr < 0xfe00 = writeTo wram 0xc000 -- echoes WRAM
-    | addr < 0xfea0 = writeTo oam 0xfe00
+    | addr < 0xa000 = bus{_vram = writeTo bus._vram 0x8000}
+    | addr < 0xc000 = bus{_sram = writeTo bus._sram 0xa000}
+    | addr < 0xe000 = bus{_wram = writeTo bus._wram 0xc000}
+    | addr < 0xfe00 = bus{_wram = writeTo bus._wram 0xc000} -- echoes WRAM
+    | addr < 0xfea0 = bus{_oam = writeTo bus._oam 0xfe00}
     | addr < 0xff00 = bus -- forbidden area
     | addr < 0xff80 = writeIO addr n bus
-    | addr < 0xffff = writeTo hram 0xff80
-    | addr == 0xffff = bus & ie !~ n
+    | addr < 0xffff = bus{_hram = writeTo bus._hram 0xff80}
+    | addr == 0xffff = bus{_ie = n}
     | otherwise = error "the impossible happened"
   where
     writeTo dest offset =
-        bus & dest % byte (addr - offset) !~ n
+        setByteAt (addr - offset) dest n
 
 writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
 writeIO addr n bus =
     case addr of
         -- writing anything to the divider or scanline register resets them
-        0xff04 -> bus & divider !~ 0
-        0xff44 -> bus & scanline !~ 0
-        _ -> bus & io % byte relativeAddr !~ n
+        0xff04 -> bus{_io = setByteAt offset bus._io 0}
+        0xff44 -> bus{_io = setByteAt offset bus._io 0}
+        _ -> bus{_io = setByteAt offset bus._io n}
   where
-    relativeAddr = addr - 0xff00
+    offset = addr - 0xff00
 
 readU16 :: MemoryBus -> U16 -> U16
 readU16 bus addr =
@@ -108,8 +112,8 @@ readU16 bus addr =
         (readByte bus $ addr + 1)
         (readByte bus addr)
 
-scanline :: Lens' MemoryBus U8
-scanline = io % byte 0x44
+scanline :: MemoryBus -> U8
+scanline bus = readByte bus 0xff44
 
 lcdc :: Lens' MemoryBus U8
 lcdc = io % byte 0x40

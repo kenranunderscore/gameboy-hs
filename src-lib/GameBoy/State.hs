@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -108,5 +109,8 @@ mkInitialState bus =
             , _pc = 0x100 -- start without BIOS for now
             , _sp = 0xfffe
             }
+
+modifyBusM :: (MemoryBus -> MemoryBus) -> GameBoy ()
+modifyBusM fn = modify' $ \s -> s{_memoryBus = fn s._memoryBus}
 
 type GameBoy a = StateT CPUState IO a
