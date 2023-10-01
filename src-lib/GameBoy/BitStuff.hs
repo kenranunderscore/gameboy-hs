@@ -1,11 +1,9 @@
 module GameBoy.BitStuff where
 
 import Data.Bits ((.&.), (.<<.), (.>>.), (.|.))
-import Data.Bits qualified as Bits
 import Data.Int
 import Data.Word
 import Numeric qualified
-import Optics
 
 type U8 = Word8
 type U16 = Word16

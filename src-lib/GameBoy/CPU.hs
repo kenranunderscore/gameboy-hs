@@ -32,7 +32,7 @@ flagBit = \case
 adjustFlag :: Flag -> Bool -> Registers -> Registers
 adjustFlag fl enable rs =
     let change = if enable then Bits.setBit else Bits.clearBit
-    in rs{_f = change rs._f (flagBit fl)}
+    in rs{f = change rs.f (flagBit fl)}
 
 clearFlag :: Flag -> Registers -> Registers
 clearFlag fl = adjustFlag fl False
@@ -41,13 +41,13 @@ setFlag :: Flag -> Registers -> Registers
 setFlag fl = adjustFlag fl True
 
 hasFlag :: Flag -> Registers -> Bool
-hasFlag fl rs = Bits.testBit rs._f (flagBit fl)
+hasFlag fl rs = Bits.testBit rs.f (flagBit fl)
 
 hasFlag' :: Flag -> CPUState -> Bool
 hasFlag' fl s = hasFlag fl s._registers
 
 modifyProgramCounter :: (U16 -> U16) -> Registers -> Registers
-modifyProgramCounter f rs = rs{_pc = f rs._pc}
+modifyProgramCounter f rs = rs{pc = f rs.pc}
 
 -- TODO: add set* version
 modifyProgramCounterM :: (U16 -> U16) -> GameBoy ()
@@ -55,7 +55,7 @@ modifyProgramCounterM f = modify' $ \s ->
     s{_registers = modifyProgramCounter f s._registers}
 
 modifyStackPointer :: (U16 -> U16) -> Registers -> Registers
-modifyStackPointer f rs = rs{_sp = f rs._sp}
+modifyStackPointer f rs = rs{sp = f rs.sp}
 
 -- TODO: add set* version
 modifyStackPointerM :: (U16 -> U16) -> GameBoy ()
@@ -71,26 +71,26 @@ data TargetRegister = A | B | C | D | E | H | L
 readRegister :: TargetRegister -> Registers -> U8
 readRegister r rs =
     case r of
-        A -> rs._a
-        B -> rs._b
-        C -> rs._c
-        D -> rs._d
-        E -> rs._e
-        H -> rs._h
-        L -> rs._l
+        A -> rs.a
+        B -> rs.b
+        C -> rs.c
+        D -> rs.d
+        E -> rs.e
+        H -> rs.h
+        L -> rs.l
 
 -- TODO: try out using set* as primitive operation
 modifyRegister :: TargetRegister -> (U8 -> U8) -> Registers -> Registers
 modifyRegister r f rs =
     let val = f $ readRegister r rs
     in case r of
-        A -> rs{_a = val}
-        B -> rs{_b = val}
-        C -> rs{_c = val}
-        D -> rs{_d = val}
-        E -> rs{_e = val}
-        H -> rs{_h = val}
-        L -> rs{_l = val}
+        A -> rs{a = val}
+        B -> rs{b = val}
+        C -> rs{c = val}
+        D -> rs{d = val}
+        E -> rs{e = val}
+        H -> rs{h = val}
+        L -> rs{l = val}
 
 -- TODO: try out using set* as primitive operation
 modifyRegisterM :: TargetRegister -> (U8 -> U8) -> GameBoy ()
@@ -183,9 +183,9 @@ instance Show RestartAddr where
 
 data Instr
     = LD_u16 TargetRegister16 U16
-    | LD_SP_u16 U16
-    | LD_u16_SP U16
-    | LD_SP_HL
+    | LDSP_u16 U16
+    | LD_u16SP U16
+    | LDSP_HL
     | LD_A_deref TargetRegister16
     | LD_A_FF00plusU8 U8
     | LD_A_FF00plusC
@@ -202,7 +202,7 @@ data Instr
     | LD_HLderef_u8 U8
     | LD_r_HLderef TargetRegister
     | LD TargetRegister TargetRegister
-    | LD_HL_SP I8
+    | LD_HLSP I8
     | LD_derefHL TargetRegister
     | BIT Int TargetRegister
     | BIT_n_derefHL Int
@@ -214,11 +214,11 @@ data Instr
     | INC TargetRegister
     | INC_derefHL
     | INC16 TargetRegister16
-    | INC_SP
+    | INCSP
     | DEC TargetRegister
     | DEC_derefHL
     | DEC16 TargetRegister16
-    | DEC_SP
+    | DECSP
     | CALL U16
     | CALL_cc FlagCondition U16
     | RET
@@ -262,8 +262,8 @@ data Instr
     | SWAP TargetRegister
     | SWAP_derefHL
     | ADD_HL TargetRegister16
-    | ADD_HL_SP
-    | ADD_SP I8
+    | ADD_HLSP
+    | ADDSP I8
     | RES Int TargetRegister
     | RES_derefHL Int
     | SET Int TargetRegister
@@ -293,9 +293,9 @@ data Instr
 instance Show Instr where
     show = \case
         LD_u16 rr n -> "LD " <> show rr <> "," <> toHex n
-        LD_SP_u16 n -> "LD SP," <> toHex n
-        LD_u16_SP n -> "LD (" <> toHex n <> "),SP"
-        LD_SP_HL -> "LD SP,HL"
+        LDSP_u16 n -> "LD SP," <> toHex n
+        LD_u16SP n -> "LD (" <> toHex n <> "),SP"
+        LDSP_HL -> "LD SP,HL"
         LD_deref_rr_A rr -> "LD (" <> show rr <> "),A"
         LD_r_HLderef r -> "LD " <> show r <> ",(HL)"
         LD_HLminus_A -> "LD (HL-),A"
@@ -312,7 +312,7 @@ instance Show Instr where
         LD_FF00plusC_A -> "LD ($ff00+C,A)"
         LD_FF00plusU8_A n -> "LD ($ff00+" <> toHex n <> "),A"
         LD_u16_A n -> "LD (" <> toHex n <> "),A"
-        LD_HL_SP n -> "LD HL,SP" <> (if n < 0 then mempty else "+") <> show n
+        LD_HLSP n -> "LD HL,SP" <> (if n < 0 then mempty else "+") <> show n
         LD_derefHL r -> "LD (HL)," <> show r
         BIT n r -> "BIT " <> show n <> "," <> show r
         BIT_n_derefHL n -> "BIT " <> show n <> ",(HL)"
@@ -324,11 +324,11 @@ instance Show Instr where
         INC r -> "INC " <> show r
         INC_derefHL -> "INC (HL)"
         INC16 r -> "INC " <> show r
-        INC_SP -> "INC SP"
+        INCSP -> "INC SP"
         DEC r -> "DEC " <> show r
         DEC_derefHL -> "DEC (HL)"
         DEC16 r -> "DEC " <> show r
-        DEC_SP -> "DEC SP"
+        DECSP -> "DEC SP"
         CALL n -> "CALL " <> toHex n
         CALL_cc cond n -> "CALL " <> show cond <> "," <> toHex n
         RET -> "RET"
@@ -372,8 +372,8 @@ instance Show Instr where
         SWAP r -> "SWAP " <> show r
         SWAP_derefHL -> "SWAP (HL)"
         ADD_HL rr -> "ADD HL," <> show rr
-        ADD_HL_SP -> "ADD HL,SP"
-        ADD_SP n -> "ADD SP," <> show n
+        ADD_HLSP -> "ADD HL,SP"
+        ADDSP n -> "ADD SP," <> show n
         RES n r -> "RES " <> show n <> "," <> show r
         RES_derefHL n -> "RES " <> show n <> ",(HL)"
         SET n r -> "SET " <> show n <> "," <> show r
@@ -404,7 +404,7 @@ fetchByteM :: GameBoy U8
 fetchByteM = do
     s <- get
     advance 1
-    pure $ readByte s._memoryBus s._registers._pc
+    pure $ readByte s._memoryBus s._registers.pc
 
 fetchI8M :: GameBoy I8
 fetchI8M = do
@@ -414,7 +414,7 @@ fetchU16M :: GameBoy U16
 fetchU16M = do
     s <- get
     advance 2
-    pure $ readU16 s._memoryBus s._registers._pc
+    pure $ readU16 s._memoryBus s._registers.pc
 
 {- FOURMOLU_DISABLE -}
 
@@ -478,7 +478,7 @@ fetch :: GameBoy Instruction
 fetch = do
     s <- get
     let
-        counter = s._registers._pc
+        counter = s._registers.pc
         bus = s._memoryBus
     advance 1
     let n = readByte bus counter
@@ -495,7 +495,7 @@ fetch = do
                 0x05 -> pure $ DEC B
                 0x06 -> LD_u8 B <$> fetchByteM
                 0x07 -> pure RLCA
-                0x08 -> LD_u16_SP <$> fetchU16M
+                0x08 -> LD_u16SP <$> fetchU16M
                 0x09 -> pure $ ADD_HL BC
                 0x0a -> pure $ LD_A_deref BC
                 0x0b -> pure $ DEC16 BC
@@ -536,17 +536,17 @@ fetch = do
                 0x2e -> LD_u8 L <$> fetchByteM
                 0x2f -> pure CPL
                 0x30 -> JR_cc CUnset <$> fetchI8M
-                0x31 -> LD_SP_u16 <$> fetchU16M
+                0x31 -> LDSP_u16 <$> fetchU16M
                 0x32 -> pure LD_HLminus_A
-                0x33 -> pure $ INC_SP
+                0x33 -> pure $ INCSP
                 0x34 -> pure INC_derefHL
                 0x35 -> pure DEC_derefHL
                 0x36 -> LD_HLderef_u8 <$> fetchByteM
                 0x37 -> pure SCF
                 0x38 -> JR_cc CSet <$> fetchI8M
-                0x39 -> pure ADD_HL_SP
+                0x39 -> pure ADD_HLSP
                 0x3a -> pure LD_A_HLminus
-                0x3b -> pure DEC_SP
+                0x3b -> pure DECSP
                 0x3c -> pure $ INC A
                 0x3d -> pure $ DEC A
                 0x3e -> LD_u8 A <$> fetchByteM
@@ -713,7 +713,7 @@ fetch = do
                 0xe5 -> pure $ PUSH HL
                 0xe6 -> AND_u8 <$> fetchByteM
                 0xe7 -> pure $ RST Rst20
-                0xe8 -> ADD_SP <$> fetchI8M
+                0xe8 -> ADDSP <$> fetchI8M
                 0xe9 -> pure JP_HL
                 0xea -> LD_u16_A <$> fetchU16M
                 0xee -> XOR_u8 <$> fetchByteM
@@ -725,8 +725,8 @@ fetch = do
                 0xf5 -> pure PUSH_AF
                 0xf6 -> OR_u8 <$> fetchByteM
                 0xf7 -> pure $ RST Rst30
-                0xf8 -> LD_HL_SP <$> fetchI8M
-                0xf9 -> pure LD_SP_HL
+                0xf8 -> LD_HLSP <$> fetchI8M
+                0xf9 -> pure LDSP_HL
                 0xfa -> LD_A_derefU16 <$> fetchU16M
                 0xfb -> pure EI
                 0xfe -> CP_u8 <$> fetchByteM
@@ -738,7 +738,7 @@ fetchPrefixed :: GameBoy Instruction
 fetchPrefixed = do
     s <- get
     let
-        counter = s._registers._pc
+        counter = s._registers.pc
         bus = s._memoryBus
     advance 1
     let
@@ -1027,7 +1027,7 @@ writeMemory addr n =
 push :: U16 -> GameBoy ()
 push n = do
     s <- get
-    let curr = s._registers._sp
+    let curr = s._registers.sp
     modifyStackPointerM (\x -> x - 2)
     writeMemory (curr - 1) hi
     writeMemory (curr - 2) lo
@@ -1038,7 +1038,7 @@ pop :: GameBoy U16
 pop = do
     s <- get
     modifyStackPointerM (+ 2)
-    pure $ readU16 s._memoryBus s._registers._sp
+    pure $ readU16 s._memoryBus s._registers.sp
 
 dec :: TargetRegister -> GameBoy ()
 dec r = modifyRegistersM $ \rs ->
@@ -1083,11 +1083,11 @@ execute Instruction{tag, baseCycles} =
             exec $ setRegister16M rr n
         LD_deref_rr_A rr -> exec $ do
             rs <- gets (._registers)
-            writeMemory (readRegister16 rr rs) rs._a
-        LD_SP_u16 n ->
+            writeMemory (readRegister16 rr rs) rs.a
+        LDSP_u16 n ->
             exec $ modifyStackPointerM (const n)
-        LD_u16_SP n -> exec $ do
-            stackPointer <- gets (._registers._sp)
+        LD_u16SP n -> exec $ do
+            stackPointer <- gets (._registers.sp)
             let (hi, lo) = splitIntoBytes stackPointer
             writeMemory n lo
             writeMemory (n + 1) hi
@@ -1096,11 +1096,11 @@ execute Instruction{tag, baseCycles} =
             setRegisterM r n
         LD_HLminus_A -> exec $ do
             rs <- gets (._registers)
-            writeMemory (hl rs) rs._a
+            writeMemory (hl rs) rs.a
             modifyRegister16M HL (\x -> x - 1)
         LD_HLplus_A -> exec $ do
             rs <- gets (._registers)
-            writeMemory (hl rs) rs._a
+            writeMemory (hl rs) rs.a
             modifyRegister16M HL (+ 1)
         LD_HLderef_u8 n -> exec $ do
             rs <- gets (._registers)
@@ -1119,7 +1119,7 @@ execute Instruction{tag, baseCycles} =
                 setRegister' A (readByte s._memoryBus (0xff00 + fromIntegral n)) s
         LD_A_FF00plusC -> exec $ do
             modify' $ \s ->
-                let offset = s._registers._c
+                let offset = s._registers.c
                 in setRegister' A (readByte s._memoryBus (0xff00 + fromIntegral offset)) s
         LD_A_derefU16 n -> exec $ do
             modify' $ \s ->
@@ -1130,24 +1130,24 @@ execute Instruction{tag, baseCycles} =
             exec $ ld_r_r r r'
         LD_u16_A n -> exec $ do
             rs <- gets (._registers)
-            writeMemory n rs._a
+            writeMemory n rs.a
         LD_FF00plusC_A -> exec $ do
             s <- get
-            let offset = fromIntegral s._registers._c
-            writeMemory (0xff00 + offset) s._registers._a
+            let offset = fromIntegral s._registers.c
+            writeMemory (0xff00 + offset) s._registers.a
         LD_FF00plusU8_A n -> exec $ do
             s <- get
-            writeMemory (0xff00 + fromIntegral n) s._registers._a
+            writeMemory (0xff00 + fromIntegral n) s._registers.a
         LD_derefHL r -> exec $ do
             rs <- gets (._registers)
             writeMemory (hl rs) (readRegister r rs)
-        LD_SP_HL -> exec $ do
+        LDSP_HL -> exec $ do
             modifyRegistersM $ \rs ->
                 modifyStackPointer (const $ hl rs) rs
-        LD_HL_SP n -> exec $ do
+        LD_HLSP n -> exec $ do
             modifyRegistersM $ \rs ->
                 let
-                    orig = rs._sp
+                    orig = rs.sp
                     res' = fromIntegral @_ @I32 orig + fromIntegral n
                     res = fromIntegral res'
                     needsHalfCarry = toU8 orig .&. 0xf + toU8 n .&. 0xf > 0xf
@@ -1206,14 +1206,14 @@ execute Instruction{tag, baseCycles} =
             modifyProgramCounterM (const addr)
             enableInterruptsM
         CALL n -> exec $ do
-            counter <- gets (._registers._pc)
+            counter <- gets (._registers.pc)
             push counter
             modifyProgramCounterM (const n)
         CALL_cc cond n -> do
             s <- get
             if (checkFlagCondition cond s)
                 then do
-                    let counter = s._registers._pc
+                    let counter = s._registers.pc
                     push counter
                     modifyProgramCounterM (const n)
                     pure 24
@@ -1238,13 +1238,13 @@ execute Instruction{tag, baseCycles} =
                     . adjustFlag HalfCarry (val .&. 0xf == 0)
         INC16 rr ->
             exec $ modifyRegister16M rr (+ 1)
-        INC_SP ->
+        INCSP ->
             exec $ modifyStackPointerM (+ 1)
         DEC r ->
             exec $ dec r
         DEC16 rr ->
             exec $ modifyRegister16M rr (\n -> n - 1)
-        DEC_SP ->
+        DECSP ->
             exec $ modifyStackPointerM (\x -> x - 1)
         DEC_derefHL -> exec $ do
             s <- get
@@ -1272,12 +1272,12 @@ execute Instruction{tag, baseCycles} =
         RLA -> exec $ do
             modifyRegistersM $ \rs ->
                 let
-                    orig = rs._a
+                    orig = rs.a
                     carry = if hasFlag Carry rs then 1 else 0
                     carry' = Bits.testBit orig 7
                     res = Bits.shiftL orig 1 + carry
                 in
-                    rs{_a = res}
+                    rs{a = res}
                         & adjustFlag Carry carry'
                             . clearFlag Zero
                             . clearFlag HalfCarry
@@ -1285,12 +1285,12 @@ execute Instruction{tag, baseCycles} =
         RRA -> exec $ do
             modifyRegistersM $ \rs ->
                 let
-                    orig = rs._a
+                    orig = rs.a
                     carry = if hasFlag Carry rs then 1 else 0
                     carry' = Bits.testBit orig 0
                     res = Bits.shiftR orig 1 + Bits.shiftL carry 7
                 in
-                    rs{_a = res}
+                    rs{a = res}
                         & adjustFlag Carry carry'
                             . clearFlag Zero
                             . clearFlag HalfCarry
@@ -1319,10 +1319,10 @@ execute Instruction{tag, baseCycles} =
             exec $ add_a_u8 =<< deref HL
         ADD_HL rr ->
             exec $ add_hl rr
-        ADD_HL_SP ->
-            exec $ add_hl_sp -- TODO: refactor
-        ADD_SP n ->
-            exec $ add_sp n
+        ADD_HLSP ->
+            exec $ add_hlsp -- TODO: refactor
+        ADDSP n ->
+            exec $ addsp n
         SUB r ->
             exec $ sub_a r
         SUB_u8 n ->
@@ -1354,7 +1354,7 @@ execute Instruction{tag, baseCycles} =
         XOR_A_HL ->
             exec $ xor_a_u8 =<< deref HL
         RST addr -> exec $ do
-            counter <- gets (._registers._pc)
+            counter <- gets (._registers.pc)
             push counter
             modifyProgramCounterM (const $ getRestartAddr addr)
         CPL -> exec $ do
@@ -1610,11 +1610,11 @@ execute Instruction{tag, baseCycles} =
         RLCA -> exec $ do
             modifyRegistersM $ \rs ->
                 let
-                    orig = rs._a
+                    orig = rs.a
                     res = Bits.rotateL orig 1
                     needsCarry = Bits.testBit orig 7
                 in
-                    rs{_a = res}
+                    rs{a = res}
                         & clearFlag Zero
                             . clearFlag Negative
                             . clearFlag HalfCarry
@@ -1622,11 +1622,11 @@ execute Instruction{tag, baseCycles} =
         RRCA -> exec $ do
             modifyRegistersM $ \rs ->
                 let
-                    orig = rs._a
+                    orig = rs.a
                     res = Bits.rotateR orig 1
                     needsCarry = Bits.testBit orig 0
                 in
-                    rs{_a = res}
+                    rs{a = res}
                         & clearFlag Zero
                             . clearFlag Negative
                             . clearFlag HalfCarry
@@ -1653,10 +1653,10 @@ enableInterruptsM = toggleInterruptsM True
 disableInterruptsM :: GameBoy ()
 disableInterruptsM = toggleInterruptsM False
 
-add_sp :: I8 -> GameBoy ()
-add_sp n = modifyRegistersM $ \rs ->
-    let (res, needsHalfCarry, needsCarry) = add_spPure rs._sp n
-    in rs{_sp = res}
+addsp :: I8 -> GameBoy ()
+addsp n = modifyRegistersM $ \rs ->
+    let (res, needsHalfCarry, needsCarry) = add_spPure rs.sp n
+    in rs{sp = res}
         & clearFlag Negative
             . clearFlag Zero
             . adjustFlag HalfCarry needsHalfCarry
@@ -1675,7 +1675,7 @@ add_spPure orig n =
 daa :: GameBoy ()
 daa = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         halfCarry = hasFlag HalfCarry rs
         carry = hasFlag Carry rs
         negative = hasFlag Negative rs
@@ -1689,7 +1689,7 @@ daa = modifyRegistersM $ \rs ->
                 else (u, False)
         res = orig + if negative then (-u') else u'
     in
-        rs{_a = res}
+        rs{a = res}
             & adjustFlag Zero (res == 0)
                 . adjustFlag Carry setCarry
                 . clearFlag HalfCarry
@@ -1710,11 +1710,11 @@ add_hl rr = modifyRegistersM $ \rs ->
             & adjustFlag HalfCarry needsHalfCarry
             & adjustFlag Carry needsCarry
 
-add_hl_sp :: GameBoy ()
-add_hl_sp = modifyRegistersM $ \rs ->
+add_hlsp :: GameBoy ()
+add_hlsp = modifyRegistersM $ \rs ->
     let
         orig = hl rs
-        val = rs._sp
+        val = rs.sp
         res' = fromIntegral @_ @U32 orig + fromIntegral val
         res = fromIntegral res'
         needsCarry = res' > 0xffff
@@ -1730,9 +1730,9 @@ or_a :: TargetRegister -> GameBoy ()
 or_a r = modifyRegistersM $ \rs ->
     let
         val = readRegister r rs
-        res = rs._a .|. val
+        res = rs.a .|. val
     in
-        rs{_a = res}
+        rs{a = res}
             & clearFlag Negative
                 . clearFlag Carry
                 . clearFlag HalfCarry
@@ -1740,8 +1740,8 @@ or_a r = modifyRegistersM $ \rs ->
 
 or_a_u8 :: U8 -> GameBoy ()
 or_a_u8 n = modifyRegistersM $ \rs ->
-    let res = rs._a .|. n
-    in rs{_a = res}
+    let res = rs.a .|. n
+    in rs{a = res}
         & clearFlag Negative
             . clearFlag Carry
             . clearFlag HalfCarry
@@ -1751,9 +1751,9 @@ and_a :: TargetRegister -> GameBoy ()
 and_a r = modifyRegistersM $ \rs ->
     let
         val = readRegister r rs
-        res = rs._a .&. val
+        res = rs.a .&. val
     in
-        rs{_a = res}
+        rs{a = res}
             & clearFlag Negative
                 . clearFlag Carry
                 . setFlag HalfCarry
@@ -1761,8 +1761,8 @@ and_a r = modifyRegistersM $ \rs ->
 
 and_a_u8 :: U8 -> GameBoy ()
 and_a_u8 n = modifyRegistersM $ \rs ->
-    let res = rs._a .&. n
-    in rs{_a = res}
+    let res = rs.a .&. n
+    in rs{a = res}
         & clearFlag Negative
             . clearFlag Carry
             . setFlag HalfCarry
@@ -1771,14 +1771,14 @@ and_a_u8 n = modifyRegistersM $ \rs ->
 add_a :: TargetRegister -> GameBoy ()
 add_a r = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         val = readRegister r rs
         res' = toU16 orig + toU16 val
         res = fromIntegral res'
         needsHalfCarry = (orig .&. 0x0f) + (val .&. 0x0f) > 0x0f
         needsCarry = res' > 0xff
     in
-        rs{_a = res}
+        rs{a = res}
             & clearFlag Negative
                 . adjustFlag Carry needsCarry
                 . adjustFlag HalfCarry needsHalfCarry
@@ -1788,13 +1788,13 @@ add_a_u8 :: U8 -> GameBoy ()
 add_a_u8 n = do
     modifyRegistersM $ \rs ->
         let
-            orig = rs._a
+            orig = rs.a
             res' = toU16 orig + toU16 n
             res = fromIntegral res'
             needsHalfCarry = (orig .&. 0x0f) + (n .&. 0x0f) > 0x0f
             needsCarry = res' > 0xff
         in
-            rs{_a = res}
+            rs{a = res}
                 & clearFlag Negative
                     . adjustFlag Carry needsCarry
                     . adjustFlag HalfCarry needsHalfCarry
@@ -1804,9 +1804,9 @@ xor_a :: TargetRegister -> GameBoy ()
 xor_a r = modifyRegistersM $ \rs ->
     let
         val = readRegister r rs
-        res = rs._a `Bits.xor` val
+        res = rs.a `Bits.xor` val
     in
-        rs{_a = res}
+        rs{a = res}
             & clearFlag Negative
                 . clearFlag Carry
                 . clearFlag HalfCarry
@@ -1814,8 +1814,8 @@ xor_a r = modifyRegistersM $ \rs ->
 
 xor_a_u8 :: U8 -> GameBoy ()
 xor_a_u8 n = modifyRegistersM $ \rs ->
-    let res = rs._a `Bits.xor` n
-    in rs{_a = res}
+    let res = rs.a `Bits.xor` n
+    in rs{a = res}
         & adjustFlag Zero (res == 0)
         & clearFlag Negative
         & clearFlag HalfCarry
@@ -1824,7 +1824,7 @@ xor_a_u8 n = modifyRegistersM $ \rs ->
 cp_a :: TargetRegister -> GameBoy ()
 cp_a r = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         val = readRegister r rs
         needsHalfCarry = orig .&. 0x0f < val .&. 0x0f
         res = orig - val
@@ -1838,7 +1838,7 @@ cp_a r = modifyRegistersM $ \rs ->
 cp_a_u8 :: U8 -> GameBoy ()
 cp_a_u8 n = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         res = orig - n
         needsHalfCarry = orig .&. 0x0f < n .&. 0x0f
     in
@@ -1851,7 +1851,7 @@ cp_a_u8 n = modifyRegistersM $ \rs ->
 sbc_a :: TargetRegister -> GameBoy ()
 sbc_a r = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         carry = if hasFlag Carry rs then 1 else 0
         n = readRegister r rs
         val = n + carry
@@ -1859,7 +1859,7 @@ sbc_a r = modifyRegistersM $ \rs ->
         needsHalfCarry = toI16 orig .&. 0xf - toI16 n .&. 0xf - toI16 carry < 0
         needsCarry = toI16 orig - toI16 n - toI16 carry < 0
     in
-        rs{_a = res}
+        rs{a = res}
             & setFlag Negative
                 . adjustFlag Carry needsCarry
                 . adjustFlag HalfCarry needsHalfCarry
@@ -1868,14 +1868,14 @@ sbc_a r = modifyRegistersM $ \rs ->
 sbc_a_u8 :: U8 -> GameBoy ()
 sbc_a_u8 n = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         carry = if hasFlag Carry rs then 1 else 0
         val = n + carry
         res = orig - val
         needsHalfCarry = toI16 orig .&. 0xf - toI16 n .&. 0xf - toI16 carry < 0
         needsCarry = toI16 orig - toI16 n - toI16 carry < 0
     in
-        rs{_a = res}
+        rs{a = res}
             & setFlag Negative
                 . adjustFlag Carry needsCarry
                 . adjustFlag HalfCarry needsHalfCarry
@@ -1884,12 +1884,12 @@ sbc_a_u8 n = modifyRegistersM $ \rs ->
 sub_a :: TargetRegister -> GameBoy ()
 sub_a r = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         val = readRegister r rs
-        res = rs._a - val
+        res = rs.a - val
         needsHalfCarry = orig .&. 0x0f < val .&. 0x0f
     in
-        rs{_a = res}
+        rs{a = res}
             & setFlag Negative
                 . adjustFlag Carry (orig < val)
                 . adjustFlag HalfCarry needsHalfCarry
@@ -1898,11 +1898,11 @@ sub_a r = modifyRegistersM $ \rs ->
 sub_a_u8 :: U8 -> GameBoy ()
 sub_a_u8 n = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         res = orig - n
         needsHalfCarry = orig .&. 0x0f < n .&. 0x0f
     in
-        rs{_a = res}
+        rs{a = res}
             & setFlag Negative
                 . adjustFlag Carry (orig < n)
                 . adjustFlag HalfCarry needsHalfCarry
@@ -1911,7 +1911,7 @@ sub_a_u8 n = modifyRegistersM $ \rs ->
 adc_a :: TargetRegister -> GameBoy ()
 adc_a r = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         val = readRegister r rs
         carry = if hasFlag Carry rs then 1 else 0
         res' = toU16 orig + toU16 val + toU16 carry
@@ -1919,7 +1919,7 @@ adc_a r = modifyRegistersM $ \rs ->
         res = fromIntegral res'
         needsHalfCarry = (orig .&. 0x0f) + (val .&. 0x0f) + carry > 0x0f
     in
-        rs{_a = res}
+        rs{a = res}
             & clearFlag Negative
                 . adjustFlag Carry needsCarry
                 . adjustFlag HalfCarry needsHalfCarry
@@ -1928,14 +1928,14 @@ adc_a r = modifyRegistersM $ \rs ->
 adc_a_u8 :: U8 -> GameBoy ()
 adc_a_u8 n = modifyRegistersM $ \rs ->
     let
-        orig = rs._a
+        orig = rs.a
         carry = if hasFlag Carry rs then 1 else 0
         res' = toU16 orig + toU16 n + toU16 carry
         needsCarry = res' > 0xff
         res = fromIntegral res'
         needsHalfCarry = (orig .&. 0x0f) + (n .&. 0x0f) + carry > 0x0f
     in
-        rs{_a = res}
+        rs{a = res}
             & clearFlag Negative
                 . adjustFlag Carry needsCarry
                 . adjustFlag HalfCarry needsHalfCarry
@@ -2025,7 +2025,7 @@ handleInterrupts = do
         -- traceM $ "      INTERRUPT " <> show interrupt
         disableInterruptsM
         modifyBusM $ disableInterrupt interrupt
-        counter <- gets (._registers._pc)
+        counter <- gets (._registers.pc)
         push counter
         case interrupt of
             0 -> modifyProgramCounterM (const 0x40) -- VBlank

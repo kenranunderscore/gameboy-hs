@@ -18,54 +18,52 @@ import GameBoy.BitStuff
 import GameBoy.Memory
 
 data Registers = Registers
-    { _a :: U8
-    , _b :: U8
-    , _c :: U8
-    , _d :: U8
-    , _e :: U8
-    , _h :: U8
-    , _l :: U8
+    { a :: U8
+    , b :: U8
+    , c :: U8
+    , d :: U8
+    , e :: U8
+    , h :: U8
+    , l :: U8
     , -- TODO: benchmark later whether a simple Haskell value can be used here
       -- to make everything more readable
-      _f :: U8
-    , _pc :: U16
-    , _sp :: U16
+      f :: U8
+    , pc :: U16
+    , sp :: U16
     }
     deriving stock (Eq)
 
-makeLenses ''Registers
-
 bc ::  Registers -> U16
-bc rs = combineBytes rs._b rs._c
+bc rs = combineBytes rs.b rs.c
 
 setBC :: U16 -> Registers  -> Registers
 setBC n rs =
     let (hi, lo) = splitIntoBytes n
-    in rs{_b = hi, _c = lo}
+    in rs{b = hi, c = lo}
 
 de :: Registers -> U16
-de rs = combineBytes rs._d rs._e
+de rs = combineBytes rs.d rs.e
 
 setDE :: U16 -> Registers  -> Registers
 setDE n rs =
     let (hi, lo) = splitIntoBytes n
-    in rs{_d = hi, _e = lo}
+    in rs{d = hi, e = lo}
 
 hl :: Registers -> U16
-hl rs = combineBytes rs._h rs._l
+hl rs = combineBytes rs.h rs.l
 
 setHL :: U16 -> Registers  -> Registers
 setHL n rs =
     let (hi, lo) = splitIntoBytes n
-    in rs{_h = hi, _l = lo}
+    in rs{h = hi, l = lo}
 
 af :: Registers -> U16
-af rs = combineBytes rs._a rs._f
+af rs = combineBytes rs.a rs.f
 
 setAF :: U16 -> Registers  -> Registers
 setAF n rs =
     let (hi, lo) = splitIntoBytes (0xfff0 .&. n)
-    in rs{_a = hi, _f = lo}
+    in rs{a = hi, f = lo}
 
 {- FOURMOLU_DISABLE -}
 instance Show Registers where
@@ -74,8 +72,8 @@ instance Show Registers where
         , " | BC = " , toHex (bc rs)
         , " | DE = " , toHex (de rs)
         , " | HL = " , toHex (hl rs)
-        , " | PC = " , toHex rs._pc
-        , " | SP = " , toHex rs._sp
+        , " | PC = " , toHex rs.pc
+        , " | SP = " , toHex rs.sp
         ]
 {- FOURMOLU_ENABLE -}
 
@@ -107,16 +105,16 @@ mkInitialState bus =
   where
     initialRegisters =
         Registers
-            { _a = 0x1
-            , _b = 0
-            , _c = 0x13
-            , _d = 0
-            , _e = 0xd8
-            , _h = 0x1
-            , _l = 0x4d
-            , _f = 0xb0
-            , _pc = 0x100 -- start without BIOS for now
-            , _sp = 0xfffe
+            { a = 0x1
+            , b = 0
+            , c = 0x13
+            , d = 0
+            , e = 0xd8
+            , h = 0x1
+            , l = 0x4d
+            , f = 0xb0
+            , pc = 0x100 -- start without BIOS for now
+            , sp = 0xfffe
             }
 
 modifyBusM :: (MemoryBus -> MemoryBus) -> GameBoy ()
