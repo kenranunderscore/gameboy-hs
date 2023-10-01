@@ -107,4 +107,7 @@ mkInitialState bus =
 modifyBusM :: (MemoryBus -> MemoryBus) -> GameBoy ()
 modifyBusM fn = modify' $ \s -> s{_memoryBus = fn s._memoryBus}
 
+modifyRegistersM :: (Registers -> Registers) -> GameBoy ()
+modifyRegistersM fn = modify' $ \s -> s{_registers = fn s._registers}
+
 type GameBoy a = StateT CPUState IO a
