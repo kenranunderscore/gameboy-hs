@@ -29,17 +29,22 @@ flagBit = \case
     HalfCarry -> 5
     Carry -> 4
 
-flag :: Flag -> Lens' Registers Bool
-flag fl = f % bit (flagBit fl)
+adjustFlag :: Flag -> Bool -> Registers -> Registers
+adjustFlag fl enable rs =
+    let change = if enable then Bits.setBit else Bits.clearBit
+    in rs{_f = change rs._f (flagBit fl)}
 
 clearFlag :: Flag -> Registers -> Registers
-clearFlag fl = set (flag fl) False
+clearFlag fl = adjustFlag fl False
 
 setFlag :: Flag -> Registers -> Registers
-setFlag fl = set (flag fl) True
+setFlag fl = adjustFlag fl True
 
-hasFlag :: Flag -> CPUState -> Bool
-hasFlag fl = view (registers % flag fl)
+hasFlag :: Flag -> Registers -> Bool
+hasFlag fl rs = Bits.testBit rs._f (flagBit fl)
+
+hasFlag' :: Flag -> CPUState -> Bool
+hasFlag' fl s = hasFlag fl s._registers
 
 advance :: U16 -> GameBoy ()
 advance n = modifying' programCounter (+ n)
@@ -79,10 +84,10 @@ checkFlagCondition :: FlagCondition -> CPUState -> Bool
 checkFlagCondition cond s = check s
   where
     check = case cond of
-        ZSet -> hasFlag Zero
-        ZUnset -> not . hasFlag Zero
-        CSet -> hasFlag Carry
-        CUnset -> not . hasFlag Carry
+        ZSet -> hasFlag' Zero
+        ZUnset -> not . hasFlag' Zero
+        CSet -> hasFlag' Carry
+        CUnset -> not . hasFlag' Carry
 
 data RestartAddr
     = Rst00
@@ -965,7 +970,6 @@ push n = do
 
 pop :: GameBoy U16
 pop = do
-    -- TODO: do I have to zero the popped memory location?
     s <- get
     put (s & registers % sp %!~ (+ 2))
     pure $ readU16 (view memoryBus s) (view stackPointer s)
@@ -979,9 +983,9 @@ dec reg = do
         in
             s
                 & registers
-                    %!~ ( set (flag Zero) (result == 0)
+                    %!~ ( adjustFlag Zero (result == 0)
                             . setFlag Negative
-                            . set (flag HalfCarry) (old .&. 0x0f == 0)
+                            . adjustFlag HalfCarry (old .&. 0x0f == 0)
                             . set reg result
                         )
 
@@ -994,9 +998,9 @@ inc reg = do
         in
             s
                 & registers
-                    %!~ ( set (flag Zero) (result == 0)
+                    %!~ ( adjustFlag Zero (result == 0)
                             . clearFlag Negative
-                            . set (flag HalfCarry) (old .&. 0x0f == 0x0f)
+                            . adjustFlag HalfCarry (old .&. 0x0f == 0x0f)
                             . set reg result
                         )
 
@@ -1103,8 +1107,8 @@ execute Instruction{_tag, _baseCycles} =
                         & hl !~ res
                         & clearFlag Zero
                         & clearFlag Negative
-                        & set (flag HalfCarry) needsHalfCarry
-                        & set (flag Carry) needsCarry
+                        & adjustFlag HalfCarry needsHalfCarry
+                        & adjustFlag Carry needsCarry
         BIT n r -> exec $ do
             modify' $ \s ->
                 let bitIsSet = Bits.testBit (s ^. registers % targetL r) n
@@ -1112,7 +1116,7 @@ execute Instruction{_tag, _baseCycles} =
                     & registers
                         %!~ setFlag HalfCarry
                         . clearFlag Negative
-                        . set (flag Zero) (not bitIsSet)
+                        . adjustFlag Zero (not bitIsSet)
         BIT_n_derefHL n -> exec $ do
             val <- deref hl
             let bitIsSet = Bits.testBit val n
@@ -1120,7 +1124,7 @@ execute Instruction{_tag, _baseCycles} =
                 rs
                     & setFlag HalfCarry
                         . clearFlag Negative
-                        . set (flag Zero) (not bitIsSet)
+                        . adjustFlag Zero (not bitIsSet)
         JR n ->
             exec $ modifying' programCounter (+ fromIntegral n)
         JR_cc cond n -> do
@@ -1181,9 +1185,9 @@ execute Instruction{_tag, _baseCycles} =
             writeMemory addr val
             modifying'
                 registers
-                ( set (flag Zero) (val == 0)
+                ( adjustFlag Zero (val == 0)
                     . clearFlag Negative
-                    . set (flag HalfCarry) (val .&. 0xf == 0)
+                    . adjustFlag HalfCarry (val .&. 0xf == 0)
                 )
         INC16 rr ->
             exec $ modifying' (registers % (target16L rr)) (+ 1)
@@ -1203,9 +1207,9 @@ execute Instruction{_tag, _baseCycles} =
             writeMemory addr val
             modifying'
                 registers
-                ( set (flag Zero) (val == 0)
+                ( adjustFlag Zero (val == 0)
                     . setFlag Negative
-                    . set (flag HalfCarry) ((val + 1) .&. 0x0f == 0)
+                    . adjustFlag HalfCarry ((val + 1) .&. 0x0f == 0)
                 )
         PUSH rr -> exec $ do
             n <- use (registers % target16L rr)
@@ -1223,12 +1227,12 @@ execute Instruction{_tag, _baseCycles} =
             modifying' registers $ \rs ->
                 let
                     orig = rs ^. a
-                    carry = if view (flag Carry) rs then 1 else 0
+                    carry = if hasFlag Carry rs then 1 else 0
                     carry' = Bits.testBit orig 7
                     a' = Bits.shiftL orig 1 + carry
                 in
                     rs
-                        & set (flag Carry) carry'
+                        & adjustFlag Carry carry'
                             . clearFlag Zero
                             . clearFlag HalfCarry
                             . clearFlag Negative
@@ -1237,12 +1241,12 @@ execute Instruction{_tag, _baseCycles} =
             modifying' registers $ \rs ->
                 let
                     orig = rs ^. a
-                    carry = if view (flag Carry) rs then 1 else 0
+                    carry = if hasFlag Carry rs then 1 else 0
                     carry' = Bits.testBit orig 0
                     a' = Bits.shiftR orig 1 + Bits.shiftL carry 7
                 in
                     rs
-                        & set (flag Carry) carry'
+                        & adjustFlag Carry carry'
                             . clearFlag Zero
                             . clearFlag HalfCarry
                             . clearFlag Negative
@@ -1326,7 +1330,7 @@ execute Instruction{_tag, _baseCycles} =
                         & clearFlag Negative
                         & clearFlag HalfCarry
                         & clearFlag Carry
-                        & set (flag Zero) (res == 0)
+                        & adjustFlag Zero (res == 0)
         SWAP_derefHL -> exec $ do
             s <- get
             let
@@ -1340,7 +1344,7 @@ execute Instruction{_tag, _baseCycles} =
                 ( clearFlag Negative
                     . clearFlag HalfCarry
                     . clearFlag Carry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Zero (res == 0)
                 )
         RES n r ->
             exec $ modifying' (registers % targetL r) (`Bits.clearBit` n)
@@ -1372,8 +1376,8 @@ execute Instruction{_tag, _baseCycles} =
                         & targetL r !~ res
                         & clearFlag Negative
                         & clearFlag HalfCarry
-                        & set (flag Carry) (Bits.testBit orig 0)
-                        & set (flag Zero) (res == 0)
+                        & adjustFlag Carry (Bits.testBit orig 0)
+                        & adjustFlag Zero (res == 0)
         SRL_derefHL -> exec $ do
             s <- get
             let
@@ -1384,19 +1388,19 @@ execute Instruction{_tag, _baseCycles} =
             modifying' registers $
                 clearFlag Negative
                     . clearFlag HalfCarry
-                    . set (flag Carry) (Bits.testBit orig 0)
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry (Bits.testBit orig 0)
+                    . adjustFlag Zero (res == 0)
         RR r -> exec $ do
             modifying' registers $ \rs ->
                 let
                     orig = rs ^. targetL r
-                    carry = if view (flag Carry) rs then 1 else 0
+                    carry = if hasFlag Carry rs then 1 else 0
                     carry' = Bits.testBit orig 0
                     res = Bits.shiftR orig 1 + Bits.shiftL carry 7
                 in
                     rs
-                        & set (flag Carry) carry'
-                            . set (flag Zero) (res == 0)
+                        & adjustFlag Carry carry'
+                            . adjustFlag Zero (res == 0)
                             . clearFlag HalfCarry
                             . clearFlag Negative
                             . set (targetL r) res
@@ -1404,14 +1408,14 @@ execute Instruction{_tag, _baseCycles} =
             s <- get
             let
                 addr = s ^. registers % hl
-                carry = if hasFlag Carry s then 1 else 0
+                carry = if hasFlag' Carry s then 1 else 0
                 orig = readByte (view memoryBus s) addr
                 carry' = Bits.testBit orig 0
                 res = Bits.shiftR orig 1 + Bits.shiftL carry 7
             writeMemory addr res
             modifying' registers $
-                set (flag Carry) carry'
-                    . set (flag Zero) (res == 0)
+                adjustFlag Carry carry'
+                    . adjustFlag Zero (res == 0)
                     . clearFlag HalfCarry
                     . clearFlag Negative
         RRC r -> exec $ do
@@ -1422,8 +1426,8 @@ execute Instruction{_tag, _baseCycles} =
                     res = Bits.rotateR orig 1
                 in
                     rs
-                        & set (flag Carry) carry
-                            . set (flag Zero) (res == 0)
+                        & adjustFlag Carry carry
+                            . adjustFlag Zero (res == 0)
                             . clearFlag HalfCarry
                             . clearFlag Negative
                             . set (targetL r) res
@@ -1436,21 +1440,21 @@ execute Instruction{_tag, _baseCycles} =
                 res = Bits.rotateR orig 1
             writeMemory addr res
             modifying' registers $
-                set (flag Carry) carry
-                    . set (flag Zero) (res == 0)
+                adjustFlag Carry carry
+                    . adjustFlag Zero (res == 0)
                     . clearFlag HalfCarry
                     . clearFlag Negative
         RL r -> exec $ do
             modifying' registers $ \rs ->
                 let
                     orig = rs ^. targetL r
-                    carry = if view (flag Carry) rs then 1 else 0
+                    carry = if hasFlag Carry rs then 1 else 0
                     carry' = Bits.testBit orig 7
                     res = Bits.shiftL orig 1 + carry
                 in
                     rs
-                        & set (flag Carry) carry'
-                            . set (flag Zero) (res == 0)
+                        & adjustFlag Carry carry'
+                            . adjustFlag Zero (res == 0)
                             . clearFlag HalfCarry
                             . clearFlag Negative
                             . set (targetL r) res
@@ -1459,13 +1463,13 @@ execute Instruction{_tag, _baseCycles} =
             let
                 addr = s ^. registers % hl
                 orig = readByte (view memoryBus s) addr
-                carry = if hasFlag Carry s then 1 else 0
+                carry = if hasFlag' Carry s then 1 else 0
                 carry' = Bits.testBit orig 7
                 res = Bits.shiftL orig 1 + carry
             writeMemory addr res
             modifying' registers $
-                set (flag Carry) carry'
-                    . set (flag Zero) (res == 0)
+                adjustFlag Carry carry'
+                    . adjustFlag Zero (res == 0)
                     . clearFlag HalfCarry
                     . clearFlag Negative
         RLC r -> exec $ do
@@ -1476,8 +1480,8 @@ execute Instruction{_tag, _baseCycles} =
                     res = Bits.rotateL orig 1
                 in
                     rs
-                        & set (flag Carry) carry
-                            . set (flag Zero) (res == 0)
+                        & adjustFlag Carry carry
+                            . adjustFlag Zero (res == 0)
                             . clearFlag HalfCarry
                             . clearFlag Negative
                             . set (targetL r) res
@@ -1490,8 +1494,8 @@ execute Instruction{_tag, _baseCycles} =
                 res = Bits.rotateL orig 1
             writeMemory addr res
             modifying' registers $
-                set (flag Carry) carry
-                    . set (flag Zero) (res == 0)
+                adjustFlag Carry carry
+                    . adjustFlag Zero (res == 0)
                     . clearFlag HalfCarry
                     . clearFlag Negative
         SLA r -> exec $ do
@@ -1502,8 +1506,8 @@ execute Instruction{_tag, _baseCycles} =
                     res = Bits.shiftL orig 1
                 in
                     rs
-                        & set (flag Carry) carry
-                            . set (flag Zero) (res == 0)
+                        & adjustFlag Carry carry
+                            . adjustFlag Zero (res == 0)
                             . clearFlag HalfCarry
                             . clearFlag Negative
                             . set (targetL r) res
@@ -1516,8 +1520,8 @@ execute Instruction{_tag, _baseCycles} =
                 res = Bits.shiftL orig 1
             writeMemory addr res
             modifying' registers $
-                set (flag Carry) carry
-                    . set (flag Zero) (res == 0)
+                adjustFlag Carry carry
+                    . adjustFlag Zero (res == 0)
                     . clearFlag HalfCarry
                     . clearFlag Negative
         SRA r -> exec $ do
@@ -1529,8 +1533,8 @@ execute Instruction{_tag, _baseCycles} =
                     res = Bits.shiftR orig 1 + msb
                 in
                     rs
-                        & set (flag Carry) carry
-                            . set (flag Zero) (res == 0)
+                        & adjustFlag Carry carry
+                            . adjustFlag Zero (res == 0)
                             . clearFlag HalfCarry
                             . clearFlag Negative
                             . set (targetL r) res
@@ -1544,8 +1548,8 @@ execute Instruction{_tag, _baseCycles} =
                 res = Bits.shiftR orig 1 + msb
             writeMemory addr res
             modifying' registers $
-                set (flag Carry) carry
-                    . set (flag Zero) (res == 0)
+                adjustFlag Carry carry
+                    . adjustFlag Zero (res == 0)
                     . clearFlag HalfCarry
                     . clearFlag Negative
         DAA ->
@@ -1561,7 +1565,7 @@ execute Instruction{_tag, _baseCycles} =
                 rs
                     & clearFlag Negative
                         . clearFlag HalfCarry
-                        . set (flag Carry) (not $ view (flag Carry) rs)
+                        . adjustFlag Carry (not $ hasFlag Carry rs)
         RLCA -> exec $ do
             modifying' registers $ \rs ->
                 let
@@ -1573,7 +1577,7 @@ execute Instruction{_tag, _baseCycles} =
                         & clearFlag Zero
                             . clearFlag Negative
                             . clearFlag HalfCarry
-                            . set (flag Carry) needsCarry
+                            . adjustFlag Carry needsCarry
                             . set a res
         RRCA -> exec $ do
             modifying' registers $ \rs ->
@@ -1586,7 +1590,7 @@ execute Instruction{_tag, _baseCycles} =
                         & clearFlag Zero
                             . clearFlag Negative
                             . clearFlag HalfCarry
-                            . set (flag Carry) needsCarry
+                            . adjustFlag Carry needsCarry
                             . set a res
         HALT -> do
             assign' halted True
@@ -1604,8 +1608,8 @@ add_sp n = do
         in rs
             & clearFlag Negative
                 . clearFlag Zero
-                . set (flag HalfCarry) needsHalfCarry
-                . set (flag Carry) needsCarry
+                . adjustFlag HalfCarry needsHalfCarry
+                . adjustFlag Carry needsCarry
                 . set sp res
 
 add_spPure :: U16 -> I8 -> (U16, Bool, Bool)
@@ -1623,9 +1627,9 @@ daa = do
     modify' $ \s ->
         let
             orig = s ^. registers % a
-            halfCarry = hasFlag HalfCarry s
-            carry = hasFlag Carry s
-            negative = hasFlag Negative s
+            halfCarry = hasFlag' HalfCarry s
+            carry = hasFlag' Carry s
+            negative = hasFlag' Negative s
             u =
                 if halfCarry || (not negative && (orig .&. 0xf) > 9)
                     then 6
@@ -1639,8 +1643,8 @@ daa = do
             s
                 & registers
                     %!~ set a res
-                    . set (flag Zero) (res == 0)
-                    . set (flag Carry) setCarry
+                    . adjustFlag Zero (res == 0)
+                    . adjustFlag Carry setCarry
                     . clearFlag HalfCarry
 
 add_hl :: Lens' Registers U16 -> GameBoy ()
@@ -1657,8 +1661,8 @@ add_hl rr = do
             rs
                 & hl !~ res
                 & clearFlag Negative
-                & set (flag HalfCarry) needsHalfCarry
-                & set (flag Carry) needsCarry
+                & adjustFlag HalfCarry needsHalfCarry
+                & adjustFlag Carry needsCarry
 
 or_a :: TargetRegister -> GameBoy ()
 or_a r = do
@@ -1672,7 +1676,7 @@ or_a r = do
                     . clearFlag Negative
                     . clearFlag Carry
                     . clearFlag HalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Zero (res == 0)
 
 or_a_u8 :: U8 -> GameBoy ()
 or_a_u8 n = do
@@ -1683,7 +1687,7 @@ or_a_u8 n = do
                 . clearFlag Negative
                 . clearFlag Carry
                 . clearFlag HalfCarry
-                . set (flag Zero) (res == 0)
+                . adjustFlag Zero (res == 0)
 
 and_a :: TargetRegister -> GameBoy ()
 and_a r = do
@@ -1697,7 +1701,7 @@ and_a r = do
                     . clearFlag Negative
                     . clearFlag Carry
                     . setFlag HalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Zero (res == 0)
 
 and_a_u8 :: U8 -> GameBoy ()
 and_a_u8 n = do
@@ -1708,7 +1712,7 @@ and_a_u8 n = do
                 . clearFlag Negative
                 . clearFlag Carry
                 . setFlag HalfCarry
-                . set (flag Zero) (res == 0)
+                . adjustFlag Zero (res == 0)
 
 add_a :: TargetRegister -> GameBoy ()
 add_a r = do
@@ -1724,9 +1728,9 @@ add_a r = do
             rs
                 & set a res
                     . clearFlag Negative
-                    . set (flag Carry) needsCarry
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry needsCarry
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 add_a_u8 :: U8 -> GameBoy ()
 add_a_u8 n = do
@@ -1741,9 +1745,9 @@ add_a_u8 n = do
             rs
                 & set a res
                     . clearFlag Negative
-                    . set (flag Carry) needsCarry
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry needsCarry
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 xor_a :: TargetRegister -> GameBoy ()
 xor_a r = do
@@ -1757,7 +1761,7 @@ xor_a r = do
                     . clearFlag Negative
                     . clearFlag Carry
                     . clearFlag HalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Zero (res == 0)
 
 xor_a_u8 :: U8 -> GameBoy ()
 xor_a_u8 n = do
@@ -1766,7 +1770,7 @@ xor_a_u8 n = do
         ( \rs ->
             let res = view a rs `Bits.xor` n
             in rs
-                & flag Zero !~ (res == 0)
+                & adjustFlag Zero (res == 0)
                 & clearFlag Negative
                 & clearFlag HalfCarry
                 & clearFlag Carry
@@ -1784,9 +1788,9 @@ cp_a r = do
         in
             rs
                 & setFlag Negative
-                    . set (flag Carry) (orig < val)
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry (orig < val)
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 cp_a_u8 :: U8 -> GameBoy ()
 cp_a_u8 n = do
@@ -1798,17 +1802,17 @@ cp_a_u8 n = do
         in
             s
                 & registers
-                    %!~ set (flag Zero) (res == 0)
+                    %!~ adjustFlag Zero (res == 0)
                     . setFlag Negative
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Carry) (orig < n)
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Carry (orig < n)
 
 sbc_a :: TargetRegister -> GameBoy ()
 sbc_a r = do
     modifying' registers $ \rs ->
         let
             orig = rs ^. a
-            carry = if rs ^. flag Carry then 1 else 0
+            carry = if hasFlag Carry rs then 1 else 0
             n = rs ^. targetL r
             val = n + carry
             res = orig - val
@@ -1818,16 +1822,16 @@ sbc_a r = do
             rs
                 & set a res
                     . setFlag Negative
-                    . set (flag Carry) needsCarry
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry needsCarry
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 sbc_a_u8 :: U8 -> GameBoy ()
 sbc_a_u8 n = do
     modifying' registers $ \rs ->
         let
             orig = rs ^. a
-            carry = if rs ^. flag Carry then 1 else 0
+            carry = if hasFlag Carry rs then 1 else 0
             val = n + carry
             res = orig - val
             needsHalfCarry = toI16 orig .&. 0xf - toI16 n .&. 0xf - toI16 carry < 0
@@ -1836,9 +1840,9 @@ sbc_a_u8 n = do
             rs
                 & set a res
                     . setFlag Negative
-                    . set (flag Carry) needsCarry
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry needsCarry
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 sub_a :: TargetRegister -> GameBoy ()
 sub_a r = do
@@ -1852,9 +1856,9 @@ sub_a r = do
             rs
                 & set a res
                     . setFlag Negative
-                    . set (flag Carry) (orig < val)
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry (orig < val)
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 sub_a_u8 :: U8 -> GameBoy ()
 sub_a_u8 n = do
@@ -1867,9 +1871,9 @@ sub_a_u8 n = do
             rs
                 & set a res
                     . setFlag Negative
-                    . set (flag Carry) (orig < n)
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry (orig < n)
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 adc_a :: TargetRegister -> GameBoy ()
 adc_a r = do
@@ -1877,7 +1881,7 @@ adc_a r = do
         let
             orig = rs ^. a
             val = rs ^. targetL r
-            carry = if rs ^. flag Carry then 1 else 0
+            carry = if hasFlag Carry rs then 1 else 0
             res' = toU16 orig + toU16 val + toU16 carry
             needsCarry = res' > 0xff
             res = fromIntegral res'
@@ -1886,16 +1890,16 @@ adc_a r = do
             rs
                 & set a res
                     . clearFlag Negative
-                    . set (flag Carry) needsCarry
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry needsCarry
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 adc_a_u8 :: U8 -> GameBoy ()
 adc_a_u8 n = do
     modifying' registers $ \rs ->
         let
             orig = rs ^. a
-            carry = if rs ^. flag Carry then 1 else 0
+            carry = if hasFlag Carry rs then 1 else 0
             res' = toU16 orig + toU16 n + toU16 carry
             needsCarry = res' > 0xff
             res = fromIntegral res'
@@ -1904,9 +1908,9 @@ adc_a_u8 n = do
             rs
                 & set a res
                     . clearFlag Negative
-                    . set (flag Carry) needsCarry
-                    . set (flag HalfCarry) needsHalfCarry
-                    . set (flag Zero) (res == 0)
+                    . adjustFlag Carry needsCarry
+                    . adjustFlag HalfCarry needsHalfCarry
+                    . adjustFlag Zero (res == 0)
 
 updateTimers :: Int -> GameBoy ()
 updateTimers cycles = do
@@ -1942,7 +1946,7 @@ data TimerFrequency
 
 readTimerFrequency :: U8 -> TimerFrequency
 readTimerFrequency n =
-    case (n ^. bit 1, n ^. bit 0) of
+    case (Bits.testBit n 1, Bits.testBit n 0) of
         (False, False) -> Freq4K
         (False, True) -> Freq256K
         (True, False) -> Freq64K

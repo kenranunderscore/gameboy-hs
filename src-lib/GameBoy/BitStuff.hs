@@ -32,11 +32,3 @@ combineBytes hi lo = (fromIntegral hi .<<. 8) .|. fromIntegral lo
 
 splitIntoBytes :: U16 -> (U8, U8)
 splitIntoBytes n = (fromIntegral (n .>>. 8), fromIntegral (n .&. 0xff))
-
-bit :: Int -> Lens' U8 Bool
-bit i =
-    lens
-        (`Bits.testBit` i)
-        ( \n on ->
-            (if on then Bits.setBit else Bits.clearBit) n i
-        )
