@@ -86,9 +86,6 @@ data CPUState = CPUState
 
 makeLenses ''CPUState
 
-programCounter :: Lens' CPUState U16
-programCounter = registers % pc
-
 stackPointer :: Lens' CPUState U16
 stackPointer = registers % sp
 
