@@ -195,10 +195,10 @@ drawSprites = do
     forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
         let
             spriteIndex = sprite * 4 -- 4 bytes per sprite
-            y = bus ^. oam % byte spriteIndex - 16
-            x = bus ^. oam % byte (spriteIndex + 1) - 8
-            tileOffset = bus ^. oam % byte (spriteIndex + 2)
-            attrs = bus ^. oam % byte (spriteIndex + 3)
+            y = oamRead spriteIndex bus - 16
+            x = oamRead (spriteIndex + 1) bus - 8
+            tileOffset = oamRead (spriteIndex + 2) bus
+            attrs = oamRead (spriteIndex + 3) bus
             flipMode = readFlipMode attrs
             currentLine = fromIntegral $ scanline bus
             height = if spriteUsesTwoTiles bus then 16 else 8

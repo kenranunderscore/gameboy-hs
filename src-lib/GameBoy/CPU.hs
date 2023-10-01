@@ -2002,4 +2002,5 @@ dmaTransfer n = do
     bus <- use memoryBus
     -- TODO: use a slice pointing to cartridge memory instead?
     forM_ [0 .. 0xa0 - 1] $ \i ->
-        assign' (memoryBus % oam % byte i) (readByte bus (startAddr + i))
+        -- TODO: improve
+        writeMemory (0xfe00 + i) (readByte bus (startAddr + i))

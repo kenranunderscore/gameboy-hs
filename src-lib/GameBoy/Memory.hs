@@ -44,14 +44,6 @@ data MemoryBus = MemoryBus
 
 makeLenses ''MemoryBus
 
--- | Target the n-th byte of a memory array.  This is (of course) only a lens if
--- and only if the index is inside the boundaries of the array.
-byte :: U16 -> Lens' Memory U8
-byte n =
-    lens
-        (\mem -> mem Vector.! fromIntegral n)
-        (\mem x -> mem Vector.// [(fromIntegral n, x)])
-
 -- | Set the n-th byte of a memory array to a fixed value.
 setByteAt :: U16 -> Memory -> U8 -> Memory
 setByteAt addr mem val = mem Vector.// [(fromIntegral addr, val)]
@@ -63,13 +55,16 @@ readByte bus addr
     | addr < 0xc000 = bus._sram Vector.! fromIntegral (addr - 0xa000)
     | addr < 0xe000 = bus._wram Vector.! fromIntegral (addr - 0xc000)
     | addr < 0xfe00 = bus._wram Vector.! fromIntegral (addr - 0xc000) -- echoes WRAM
-    | addr < 0xfea0 = bus._oam Vector.! fromIntegral (addr - 0xfe00)
+    | addr < 0xfea0 = oamRead (addr - 0xfe00) bus
     | addr < 0xff00 = 0 -- forbidden area
     | addr == 0xff00 = readGamepad bus
     | addr < 0xff80 = bus._io Vector.! fromIntegral (addr - 0xff00)
     | addr < 0xffff = bus._hram Vector.! fromIntegral (addr - 0xff80)
     | addr == 0xffff = bus._ie
     | otherwise = error "the impossible happened"
+
+oamRead :: U16 -> MemoryBus -> U8
+oamRead relAddr bus = bus._oam Vector.! fromIntegral relAddr
 
 readGamepad :: MemoryBus -> U8
 readGamepad bus = toJoyp buttons val
@@ -189,9 +184,11 @@ timerIntRequested = interruptRequested 2
 
 toggleInterrupt :: Bool -> Int -> MemoryBus -> MemoryBus
 toggleInterrupt enabled interrupt bus =
-    let change = if enabled then Bits.setBit else Bits.clearBit
+    let
+        change = if enabled then Bits.setBit else Bits.clearBit
         val = change (readByte bus 0xff0f) interrupt
-    in writeByte 0xff0f val bus
+    in
+        writeByte 0xff0f val bus
 
 requestInterrupt :: Int -> MemoryBus -> MemoryBus
 requestInterrupt = toggleInterrupt True
@@ -322,4 +319,4 @@ initializeMemoryBus path = do
             putStrLn $ "Cartridge type:  " <> show h.cartridgeType
             putStrLn $ "CGB:  " <> toHex h.cgb
             putStrLn $ "SGB:  " <> toHex h.sgb
-    pure $ set cartridge cart.memory defaultMemoryBus
+    pure $ defaultMemoryBus{_cartridge = cart.memory}
