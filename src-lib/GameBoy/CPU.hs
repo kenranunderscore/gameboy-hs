@@ -47,13 +47,20 @@ hasFlag' :: Flag -> CPUState -> Bool
 hasFlag' fl s = hasFlag fl s._registers
 
 modifyProgramCounter :: (U16 -> U16) -> Registers -> Registers
-modifyProgramCounter f rs =
-    rs{_pc = f rs._pc}
+modifyProgramCounter f rs = rs{_pc = f rs._pc}
 
 -- TODO: add set* version
 modifyProgramCounterM :: (U16 -> U16) -> GameBoy ()
 modifyProgramCounterM f = modify' $ \s ->
     s{_registers = modifyProgramCounter f s._registers}
+
+modifyStackPointer :: (U16 -> U16) -> Registers -> Registers
+modifyStackPointer f rs = rs{_sp = f rs._sp}
+
+-- TODO: add set* version
+modifyStackPointerM :: (U16 -> U16) -> GameBoy ()
+modifyStackPointerM f = modify' $ \s ->
+    s{_registers = modifyStackPointer f s._registers}
 
 advance :: U16 -> GameBoy ()
 advance n = modifyProgramCounterM (+ n)
@@ -968,8 +975,8 @@ writeMemory addr n =
 push :: U16 -> GameBoy ()
 push n = do
     s <- get
-    let curr = s ^. stackPointer
-    modifying' stackPointer (\x -> x - 2)
+    let curr = s._registers._sp
+    modifyStackPointerM (\x -> x - 2)
     writeMemory (curr - 1) hi
     writeMemory (curr - 2) lo
   where
@@ -979,7 +986,7 @@ pop :: GameBoy U16
 pop = do
     s <- get
     put (s & registers % sp %!~ (+ 2))
-    pure $ readU16 s._memoryBus (view stackPointer s)
+    pure $ readU16 s._memoryBus s._registers._sp
 
 dec :: Lens' Registers U8 -> GameBoy ()
 dec reg = do
@@ -1033,7 +1040,8 @@ execute Instruction{tag, baseCycles} =
         LD_SP_u16 n ->
             exec $ assign' (registers % sp) n
         LD_u16_SP n -> exec $ do
-            (hi, lo) <- splitIntoBytes <$> use stackPointer
+            stackPointer <- gets (._registers._sp)
+            let (hi, lo) = splitIntoBytes stackPointer
             writeMemory n lo
             writeMemory (n + 1) hi
         LD_r_HLderef r -> exec $ do
@@ -1199,13 +1207,13 @@ execute Instruction{tag, baseCycles} =
         INC16 rr ->
             exec $ modifying' (registers % (target16L rr)) (+ 1)
         INC_SP ->
-            exec $ modifying' stackPointer (+ 1)
+            exec $ modifyStackPointerM (+ 1)
         DEC r ->
             exec $ dec (targetL r)
         DEC16 rr ->
             exec $ modifying' (registers % (target16L rr)) (\n -> n - 1)
         DEC_SP ->
-            exec $ modifying' stackPointer (\n -> n - 1)
+            exec $ modifyStackPointerM (\x -> x - 1)
         DEC_derefHL -> exec $ do
             s <- get
             let

@@ -86,9 +86,6 @@ data CPUState = CPUState
 
 makeLenses ''CPUState
 
-stackPointer :: Lens' CPUState U16
-stackPointer = registers % sp
-
 mkInitialState :: MemoryBus -> CPUState
 mkInitialState bus =
     CPUState initialRegisters bus 0 1024 True 456 emptyScreen emptyScreen False
