@@ -10,191 +10,179 @@ module GameBoy.Memory where
 import Data.Bits qualified as Bits
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
-import Data.Vector.Unboxed (Vector)
-import Data.Vector.Unboxed qualified as Vector
+import Data.Vector.Unboxed qualified as Unboxed
+import Data.Vector.Unboxed.Mutable qualified as MUnboxed
 
 import GameBoy.BitStuff
 import GameBoy.Gamepad
-
-type Memory = Vector U8
-
-data MemoryBus = MemoryBus
-    { cartridge :: Memory
-    -- ^ Cartridge RAM: $0000 - $7fff
-    , vram :: Memory
-    -- ^ VRAM: $8000 - $9fff
-    , sram :: Memory
-    -- ^ SRAM: $a000 - $bfff
-    , wram :: Memory
-    -- ^ WRAM: $c000 - $dfff
-    , oam :: Memory
-    -- ^ Object attribute memory: $fe00 - $fe9f
-    , gamepadState :: GamepadState
-    -- ^ Current state of the buttons: $ff00
-    , io :: Memory
-    -- ^ IO registers: $ff00 - $ff7f
-    , hram :: Memory
-    -- ^ HRAM: $ff80 - $fffe
-    , ie :: U8
-    -- ^ Interrupt register: $ffff
-    }
-    deriving (Show)
+import GameBoy.State
 
 -- | Set the n-th byte of a memory array to a fixed value.
-setByteAt :: U16 -> Memory -> U8 -> Memory
-setByteAt addr mem val = mem Vector.// [(fromIntegral addr, val)]
+setByteAt :: U16 -> Memory -> U8 -> GameBoy ()
+setByteAt addr mem val =
+    MUnboxed.write mem (fromIntegral addr) val
 
-readByte :: MemoryBus -> U16 -> U8
+readByte :: MemoryBus -> U16 -> GameBoy U8
 readByte bus addr
-    | addr < 0x8000 = bus.cartridge Vector.! fromIntegral addr
-    | addr < 0xa000 = bus.vram Vector.! fromIntegral (addr - 0x8000)
-    | addr < 0xc000 = bus.sram Vector.! fromIntegral (addr - 0xa000)
-    | addr < 0xe000 = bus.wram Vector.! fromIntegral (addr - 0xc000)
-    | addr < 0xfe00 = bus.wram Vector.! fromIntegral (addr - 0xc000) -- echoes WRAM
+    | addr < 0x8000 = MUnboxed.read bus.cartridge $ fromIntegral addr
+    | addr < 0xa000 = MUnboxed.read bus.vram $ fromIntegral (addr - 0x8000)
+    | addr < 0xc000 = MUnboxed.read bus.sram $ fromIntegral (addr - 0xa000)
+    | addr < 0xe000 = MUnboxed.read bus.wram $ fromIntegral (addr - 0xc000)
+    | addr < 0xfe00 = MUnboxed.read bus.wram $ fromIntegral (addr - 0xc000) -- echoes WRAM
     | addr < 0xfea0 = oamRead (addr - 0xfe00) bus
-    | addr < 0xff00 = 0 -- forbidden area
+    | addr < 0xff00 = pure 0 -- forbidden area
     | addr == 0xff00 = readGamepad bus
-    | addr < 0xff80 = bus.io Vector.! fromIntegral (addr - 0xff00)
-    | addr < 0xffff = bus.hram Vector.! fromIntegral (addr - 0xff80)
-    | addr == 0xffff = bus.ie
+    | addr < 0xff80 = MUnboxed.read bus.io $ fromIntegral (addr - 0xff00)
+    | addr < 0xffff = MUnboxed.read bus.hram $ fromIntegral (addr - 0xff80)
+    | addr == 0xffff = pure bus.ie
     | otherwise = error "the impossible happened"
 
-oamRead :: U16 -> MemoryBus -> U8
-oamRead relAddr bus = bus.oam Vector.! fromIntegral relAddr
+oamRead :: U16 -> MemoryBus -> GameBoy U8
+oamRead relAddr bus = MUnboxed.read bus.oam $ fromIntegral relAddr
 
-readGamepad :: MemoryBus -> U8
-readGamepad bus = toJoyp buttons val
-  where
-    val = bus.io Vector.! 0
-    buttons = bus.gamepadState
+readGamepad :: MemoryBus -> GameBoy U8
+readGamepad bus = do
+    val <- MUnboxed.read bus.io 0
+    pure $ toJoyp bus.gamepadState val
 
-writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
+readByteM :: U16 -> GameBoy U8
+readByteM addr = do
+    bus <- busM
+    readByte bus addr
+
+-- TODO: refactor! maybe don't take bus?
+writeByte :: U16 -> U8 -> MemoryBus -> GameBoy ()
 writeByte addr n bus
     -- writes to cartridge ROM cannot happen, but can be used to trigger MBC
     -- interaction
-    | addr < 0x8000 = bus
-    | addr < 0xa000 = bus{vram = writeTo bus.vram 0x8000}
-    | addr < 0xc000 = bus{sram = writeTo bus.sram 0xa000}
-    | addr < 0xe000 = bus{wram = writeTo bus.wram 0xc000}
-    | addr < 0xfe00 = bus{wram = writeTo bus.wram 0xc000} -- echoes WRAM
-    | addr < 0xfea0 = bus{oam = writeTo bus.oam 0xfe00}
-    | addr < 0xff00 = bus -- forbidden area
+    | addr < 0x8000 = pure ()
+    | addr < 0xa000 = writeTo bus.vram 0x8000
+    | addr < 0xc000 = writeTo bus.sram 0xa000
+    | addr < 0xe000 = writeTo bus.wram 0xc000
+    | addr < 0xfe00 = writeTo bus.wram 0xc000 -- echoes WRAM
+    | addr < 0xfea0 = writeTo bus.oam 0xfe00
+    | addr < 0xff00 = pure () -- forbidden area
     | addr < 0xff80 = writeIO addr n bus
-    | addr < 0xffff = bus{hram = writeTo bus.hram 0xff80}
-    | addr == 0xffff = bus{ie = n}
+    | addr < 0xffff = writeTo bus.hram 0xff80
+    | addr == 0xffff = modifyBusM $ const bus{ie = n}
     | otherwise = error "the impossible happened"
   where
     writeTo dest offset =
         setByteAt (addr - offset) dest n
 
-writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
+writeIO :: U16 -> U8 -> MemoryBus -> GameBoy ()
 writeIO addr n bus =
     case addr of
         -- writing anything to the divider or scanline register resets them
-        0xff04 -> bus{io = setByteAt offset bus.io 0}
-        0xff44 -> bus{io = setByteAt offset bus.io 0}
-        _ -> bus{io = setByteAt offset bus.io n}
+        0xff04 -> setByteAt offset bus.io 0
+        0xff44 -> setByteAt offset bus.io 0
+        _ -> setByteAt offset bus.io n
   where
     offset = addr - 0xff00
 
-readU16 :: MemoryBus -> U16 -> U16
+readU16 :: MemoryBus -> U16 -> GameBoy U16
 readU16 bus addr =
     -- GameBoy is little-endian
     combineBytes
-        (readByte bus $ addr + 1)
-        (readByte bus addr)
+        <$> readByte bus (addr + 1)
+        <*> readByte bus addr
 
-scanline :: MemoryBus -> U8
+scanline :: MemoryBus -> GameBoy U8
 scanline bus = readByte bus 0xff44
 
-lcdc :: MemoryBus -> U8
+lcdc :: MemoryBus -> GameBoy U8
 lcdc bus = readByte bus 0xff40
 
-lcdEnable :: MemoryBus -> Bool
-lcdEnable bus = Bits.testBit (lcdc bus) 7
+lcdEnable :: MemoryBus -> GameBoy Bool
+lcdEnable bus = (`Bits.testBit` 7) <$> lcdc bus
 
-displayWindow :: MemoryBus -> Bool
-displayWindow bus = Bits.testBit (lcdc bus) 5
+displayWindow :: MemoryBus -> GameBoy Bool
+displayWindow bus = (`Bits.testBit` 5) <$> lcdc bus
 
-spriteUsesTwoTiles :: MemoryBus -> Bool
-spriteUsesTwoTiles bus = Bits.testBit (lcdc bus) 2
+spriteUsesTwoTiles :: MemoryBus -> GameBoy Bool
+spriteUsesTwoTiles bus = (`Bits.testBit` 2) <$> lcdc bus
 
-objEnabled :: MemoryBus -> Bool
-objEnabled bus = Bits.testBit (lcdc bus) 1
+objEnabled :: MemoryBus -> GameBoy Bool
+objEnabled bus = (`Bits.testBit` 1) <$> lcdc bus
 
-lcdStatus :: MemoryBus -> U8
+lcdStatus :: MemoryBus -> GameBoy U8
 lcdStatus bus = readByte bus 0xff41
 
-setSTAT :: U8 -> MemoryBus -> MemoryBus
-setSTAT n bus = bus{io = setByteAt 0x41 bus.io n}
+setSTATM :: U8 -> GameBoy ()
+setSTATM n = do
+    bus <- busM
+    setByteAt 0x41 bus.io n
 
-viewportY :: MemoryBus -> U8
+viewportY :: MemoryBus -> GameBoy U8
 viewportY bus = readByte bus 0xff42
 
-viewportX :: MemoryBus -> U8
+viewportX :: MemoryBus -> GameBoy U8
 viewportX bus = readByte bus 0xff43
 
-lyc :: MemoryBus -> U8
+lyc :: MemoryBus -> GameBoy U8
 lyc bus = readByte bus 0xff45
 
-windowY :: MemoryBus -> U8
+windowY :: MemoryBus -> GameBoy U8
 windowY bus = readByte bus 0xff4a
 
-windowX :: MemoryBus -> U8
+windowX :: MemoryBus -> GameBoy U8
 windowX bus = readByte bus 0x4ffb
 
-modifyDivider :: (U8 -> U8) -> MemoryBus -> MemoryBus
-modifyDivider f bus =
-    let orig = readByte bus 0xff04
-    in bus{io = setByteAt 0x04 bus.io (f orig)}
+modifyDivider :: (U8 -> U8) -> MemoryBus -> GameBoy ()
+modifyDivider f bus = do
+    orig <- readByte bus 0xff04
+    setByteAt 0x04 bus.io (f orig)
 
-tima :: MemoryBus -> U8
+tima :: MemoryBus -> GameBoy U8
 tima bus = readByte bus 0xff05
 
-modifyTima :: (U8 -> U8) -> MemoryBus -> MemoryBus
-modifyTima f bus =
-    let orig = readByte bus 0xff05
-    in bus{io = setByteAt 0x05 bus.io (f orig)}
+modifyTimaM :: (U8 -> U8) -> GameBoy ()
+modifyTimaM f = do
+    bus <- busM
+    orig <- readByte bus 0xff05
+    setByteAt 0x05 bus.io (f orig)
 
-tma :: MemoryBus -> U8
+tma :: MemoryBus -> GameBoy U8
 tma bus = readByte bus 0xff06
 
-tac :: MemoryBus -> U8
+tac :: MemoryBus -> GameBoy U8
 tac bus = readByte bus 0xff07
 
-bgPalette :: MemoryBus -> U8
+bgPalette :: MemoryBus -> GameBoy U8
 bgPalette bus = readByte bus 0xff47
 
-timerEnable :: MemoryBus -> Bool
-timerEnable bus = Bits.testBit (tac bus) 2
+timerEnable :: MemoryBus -> GameBoy Bool
+timerEnable bus = (`Bits.testBit` 2) <$> tac bus
 
-interruptFlags :: MemoryBus -> U8
+interruptFlags :: MemoryBus -> GameBoy U8
 interruptFlags bus = readByte bus 0xff0f
 
-interruptRequested :: Int -> MemoryBus -> Bool
+interruptRequested :: Int -> MemoryBus -> GameBoy Bool
 interruptRequested interrupt bus =
-    Bits.testBit (interruptFlags bus) interrupt
+    (`Bits.testBit` interrupt) <$> interruptFlags bus
 
-timerIntRequested :: MemoryBus -> Bool
+timerIntRequested :: MemoryBus -> GameBoy Bool
 timerIntRequested = interruptRequested 2
 
-toggleInterrupt :: Bool -> Int -> MemoryBus -> MemoryBus
-toggleInterrupt enabled interrupt bus =
-    let
-        change = if enabled then Bits.setBit else Bits.clearBit
-        val = change (readByte bus 0xff0f) interrupt
-    in
-        writeByte 0xff0f val bus
+toggleInterrupt :: Bool -> Int -> MemoryBus -> GameBoy ()
+toggleInterrupt enabled interrupt bus = do
+    let change = if enabled then Bits.setBit else Bits.clearBit
+    val <- (`change` interrupt) <$> readByte bus 0xff0f
+    writeByte 0xff0f val bus
 
-requestInterrupt :: Int -> MemoryBus -> MemoryBus
+requestInterrupt :: Int -> MemoryBus -> GameBoy ()
 requestInterrupt = toggleInterrupt True
 
-disableInterrupt :: Int -> MemoryBus -> MemoryBus
+requestInterruptM :: Int -> GameBoy ()
+requestInterruptM interrupt =
+    toggleInterrupt True interrupt =<< busM
+
+disableInterrupt :: Int -> MemoryBus -> GameBoy ()
 disableInterrupt = toggleInterrupt False
 
 {- FOURMOLU_DISABLE -}
 
-bios :: Memory
+bios :: CartridgeMemory
 bios =
     [ 0x31, 0xfe, 0xff, 0xaf, 0x21, 0xff, 0x9f, 0x32, 0xcb, 0x7c, 0x20, 0xfb, 0x21, 0x26, 0xff, 0x0e
     , 0x11, 0x3e, 0x80, 0x32, 0xe2, 0x0c, 0x3e, 0xf3, 0xe2, 0x32, 0x3e, 0x77, 0x77, 0x3e, 0xfc, 0xe0
@@ -214,7 +202,7 @@ bios =
     , 0xf5, 0x06, 0x19, 0x78, 0x86, 0x23, 0x05, 0x20, 0xfb, 0x86, 0x20, 0xfe, 0x3e, 0x01, 0xe0, 0x50
     ]
 
-ioInitialValues :: Memory
+ioInitialValues :: CartridgeMemory
 ioInitialValues =
     [ 0xff, 0x00, 0x7c, 0xff, 0x00, 0x00, 0x00, 0xf8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01
     , 0x80, 0xbf, 0xf3, 0xff, 0xbf, 0xff, 0x3f, 0x00, 0xff, 0xbf, 0x7f, 0xff, 0x9f, 0xff, 0xbf, 0xff
@@ -260,50 +248,61 @@ data CartridgeHeader = CartridgeHeader
     }
     deriving (Show)
 
+type CartridgeMemory = Unboxed.Vector U8
+
 data Cartridge = Cartridge
-    { memory :: Memory
+    { memory :: CartridgeMemory
     , header :: Maybe CartridgeHeader
     }
     deriving (Show)
 
-readCartridgeHeader :: Memory -> Maybe CartridgeHeader
+readCartridgeHeader :: CartridgeMemory -> Maybe CartridgeHeader
 readCartridgeHeader mem =
     Just $
         CartridgeHeader
             theTitle
-            (mem Vector.! 0x143)
-            (mem Vector.! 0x146)
-            (readCartridgeType $ mem Vector.! 0x147)
+            (mem Unboxed.! 0x143)
+            (mem Unboxed.! 0x146)
+            (readCartridgeType $ mem Unboxed.! 0x147)
   where
     theTitle =
-        Vector.toList $
-            Vector.map (Char.chr . fromIntegral) $
-                Vector.slice 0x134 (0x142 - 0x134 + 1) mem
+        Unboxed.toList $
+            Unboxed.map (Char.chr . fromIntegral) $
+                Unboxed.slice 0x134 (0x142 - 0x134 + 1) mem
 
 loadCartridgeFromFile :: FilePath -> IO Cartridge
 loadCartridgeFromFile path = do
     bytes <- BS.readFile path
-    let mem = Vector.fromList $ BS.unpack bytes
+    let mem = Unboxed.fromList $ BS.unpack bytes
     pure $ Cartridge mem (readCartridgeHeader mem)
 
-defaultMemoryBus :: MemoryBus
-defaultMemoryBus =
+mkDefaultMemoryBus :: CartridgeMemory -> IO MemoryBus
+mkDefaultMemoryBus cart = do
+    cartridge <- Unboxed.thaw cart
+    vram <- mkEmptyMemory 0x2000
+    sram <- mkEmptyMemory 0x2000
+    wram <- mkEmptyMemory 0x2000
+    oam <- mkEmptyMemory 0x100
+    hram <- mkEmptyMemory 0x80
+    io <- Unboxed.thaw ioInitialValues
     -- TODO: set correct initial values
-    MemoryBus
-        { ie = 0x0 -- TODO check this
-        , hram = mkEmptyMemory 0x80
-        , gamepadState = noButtonsPressed
-        , io = ioInitialValues
-        , oam = mkEmptyMemory 0x100
-        , wram = mkEmptyMemory 0x2000
-        , sram = mkEmptyMemory 0x2000
-        , vram = mkEmptyMemory 0x2000
-        , cartridge = mkEmptyMemory 0x8000
-        }
+    pure
+        MemoryBus
+            { cartridge = cartridge
+            , vram = vram
+            , sram = sram
+            , wram = wram
+            , oam = oam
+            , gamepadState = noButtonsPressed
+            , io = io
+            , hram = hram
+            , ie = 0x0 -- TODO check this
+            }
 
-mkEmptyMemory :: U16 -> Memory
+mkEmptyMemory :: U16 -> IO Memory
 mkEmptyMemory len =
-    Vector.replicate (fromIntegral len) 0
+    let v = Unboxed.replicate (fromIntegral len) 0
+    in Unboxed.thaw v
 
 initializeMemoryBus :: FilePath -> IO MemoryBus
 initializeMemoryBus path = do
@@ -315,4 +314,4 @@ initializeMemoryBus path = do
             putStrLn $ "Cartridge type:  " <> show h.cartridgeType
             putStrLn $ "CGB:  " <> toHex h.cgb
             putStrLn $ "SGB:  " <> toHex h.sgb
-    pure $ defaultMemoryBus{cartridge = cart.memory}
+    mkDefaultMemoryBus cart.memory

@@ -65,7 +65,8 @@ mainLoop scrRef buttonsRef = do
                     pure cycles
                 else do
                     -- liftIO $ putStrLn "  [HALT]"
-                    when (interruptFlags s.memoryBus > 0) continue
+                    flags <- interruptFlags s.memoryBus
+                    when (flags > 0) continue
                     pure 4
         updateTimers cycles
         updateGraphics cycles

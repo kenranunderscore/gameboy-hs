@@ -12,9 +12,10 @@ import Control.Monad.State.Strict
 import Data.Bits ((.&.))
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
+import Data.Vector.Unboxed.Mutable (IOVector)
 
 import GameBoy.BitStuff
-import GameBoy.Memory
+import GameBoy.Gamepad
 
 data Registers = Registers
     { a :: U8
@@ -76,6 +77,29 @@ instance Show Registers where
         ]
 {- FOURMOLU_ENABLE -}
 
+type Memory = IOVector U8
+
+data MemoryBus = MemoryBus
+    { cartridge :: Memory
+    -- ^ Cartridge RAM: $0000 - $7fff
+    , vram :: Memory
+    -- ^ VRAM: $8000 - $9fff
+    , sram :: Memory
+    -- ^ SRAM: $a000 - $bfff
+    , wram :: Memory
+    -- ^ WRAM: $c000 - $dfff
+    , oam :: Memory
+    -- ^ Object attribute memory: $fe00 - $fe9f
+    , gamepadState :: GamepadState
+    -- ^ Current state of the buttons: $ff00
+    , io :: Memory
+    -- ^ IO registers: $ff00 - $ff7f
+    , hram :: Memory
+    -- ^ HRAM: $ff80 - $fffe
+    , ie :: U8
+    -- ^ Interrupt register: $ffff
+    }
+
 type InMemoryScreen = Vector (Vector U8)
 
 emptyScreen :: InMemoryScreen
@@ -94,7 +118,6 @@ data CPUState = CPUState
     , preparedScreen :: InMemoryScreen
     , halted :: Bool
     }
-    deriving stock (Show)
 
 mkInitialState :: MemoryBus -> CPUState
 mkInitialState bus =
@@ -113,6 +136,9 @@ mkInitialState bus =
             , pc = 0x100 -- start without BIOS for now
             , sp = 0xfffe
             }
+
+busM :: GameBoy MemoryBus
+busM = gets (.memoryBus)
 
 modifyBusM :: (MemoryBus -> MemoryBus) -> GameBoy ()
 modifyBusM fn = modify' $ \s -> s{memoryBus = fn s.memoryBus}

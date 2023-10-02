@@ -29,6 +29,7 @@ library
     , base
     , bytestring
     , containers
+    , extra
     , mtl
     , sdl2
     , stm
