@@ -3,16 +3,15 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE StrictData #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
 module GameBoy.Memory where
 
+import Data.Bits qualified as Bits
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as Vector
-import Optics
 
 import GameBoy.BitStuff
 import GameBoy.Gamepad
@@ -20,86 +19,83 @@ import GameBoy.Gamepad
 type Memory = Vector U8
 
 data MemoryBus = MemoryBus
-    { _cartridge :: Memory
+    { cartridge :: Memory
     -- ^ Cartridge RAM: $0000 - $7fff
-    , _vram :: Memory
+    , vram :: Memory
     -- ^ VRAM: $8000 - $9fff
-    , _sram :: Memory
+    , sram :: Memory
     -- ^ SRAM: $a000 - $bfff
-    , _wram :: Memory
+    , wram :: Memory
     -- ^ WRAM: $c000 - $dfff
-    , _oam :: Memory
+    , oam :: Memory
     -- ^ Object attribute memory: $fe00 - $fe9f
-    , _gamepadState :: GamepadState
+    , gamepadState :: GamepadState
     -- ^ Current state of the buttons: $ff00
-    , _io :: Memory
+    , io :: Memory
     -- ^ IO registers: $ff00 - $ff7f
-    , _hram :: Memory
+    , hram :: Memory
     -- ^ HRAM: $ff80 - $fffe
-    , _ie :: U8
+    , ie :: U8
     -- ^ Interrupt register: $ffff
     }
     deriving (Show)
 
-makeLenses ''MemoryBus
-
--- | Target the n-th byte of a memory array.  This is (of course) only a lens if
--- and only if the index is inside the boundaries of the array.
-byte :: U16 -> Lens' Memory U8
-byte n =
-    lens
-        (\mem -> mem Vector.! fromIntegral n)
-        (\mem x -> mem Vector.// [(fromIntegral n, x)])
+-- | Set the n-th byte of a memory array to a fixed value.
+setByteAt :: U16 -> Memory -> U8 -> Memory
+setByteAt addr mem val = mem Vector.// [(fromIntegral addr, val)]
 
 readByte :: MemoryBus -> U16 -> U8
 readByte bus addr
-    | addr < 0x8000 = bus._cartridge Vector.! fromIntegral addr
-    | addr < 0xa000 = bus._vram Vector.! fromIntegral (addr - 0x8000)
-    | addr < 0xc000 = bus._sram Vector.! fromIntegral (addr - 0xa000)
-    | addr < 0xe000 = bus._wram Vector.! fromIntegral (addr - 0xc000)
-    | addr < 0xfe00 = bus._wram Vector.! fromIntegral (addr - 0xc000) -- echoes WRAM
-    | addr < 0xfea0 = bus._oam Vector.! fromIntegral (addr - 0xfe00)
+    | addr < 0x8000 = bus.cartridge Vector.! fromIntegral addr
+    | addr < 0xa000 = bus.vram Vector.! fromIntegral (addr - 0x8000)
+    | addr < 0xc000 = bus.sram Vector.! fromIntegral (addr - 0xa000)
+    | addr < 0xe000 = bus.wram Vector.! fromIntegral (addr - 0xc000)
+    | addr < 0xfe00 = bus.wram Vector.! fromIntegral (addr - 0xc000) -- echoes WRAM
+    | addr < 0xfea0 = oamRead (addr - 0xfe00) bus
     | addr < 0xff00 = 0 -- forbidden area
     | addr == 0xff00 = readGamepad bus
-    | addr < 0xff80 = bus._io Vector.! fromIntegral (addr - 0xff00)
-    | addr < 0xffff = bus._hram Vector.! fromIntegral (addr - 0xff80)
-    | addr == 0xffff = bus._ie
+    | addr < 0xff80 = bus.io Vector.! fromIntegral (addr - 0xff00)
+    | addr < 0xffff = bus.hram Vector.! fromIntegral (addr - 0xff80)
+    | addr == 0xffff = bus.ie
     | otherwise = error "the impossible happened"
+
+oamRead :: U16 -> MemoryBus -> U8
+oamRead relAddr bus = bus.oam Vector.! fromIntegral relAddr
 
 readGamepad :: MemoryBus -> U8
 readGamepad bus = toJoyp buttons val
   where
-    val = bus._io Vector.! 0
-    buttons = bus._gamepadState
+    val = bus.io Vector.! 0
+    buttons = bus.gamepadState
 
 writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
 writeByte addr n bus
     -- writes to cartridge ROM cannot happen, but can be used to trigger MBC
     -- interaction
     | addr < 0x8000 = bus
-    | addr < 0xa000 = writeTo vram 0x8000
-    | addr < 0xc000 = writeTo sram 0xa000
-    | addr < 0xe000 = writeTo wram 0xc000
-    | addr < 0xfe00 = writeTo wram 0xc000 -- echoes WRAM
-    | addr < 0xfea0 = writeTo oam 0xfe00
+    | addr < 0xa000 = bus{vram = writeTo bus.vram 0x8000}
+    | addr < 0xc000 = bus{sram = writeTo bus.sram 0xa000}
+    | addr < 0xe000 = bus{wram = writeTo bus.wram 0xc000}
+    | addr < 0xfe00 = bus{wram = writeTo bus.wram 0xc000} -- echoes WRAM
+    | addr < 0xfea0 = bus{oam = writeTo bus.oam 0xfe00}
     | addr < 0xff00 = bus -- forbidden area
     | addr < 0xff80 = writeIO addr n bus
-    | addr < 0xffff = writeTo hram 0xff80
-    | addr == 0xffff = bus & ie !~ n
+    | addr < 0xffff = bus{hram = writeTo bus.hram 0xff80}
+    | addr == 0xffff = bus{ie = n}
     | otherwise = error "the impossible happened"
   where
     writeTo dest offset =
-        bus & dest % byte (addr - offset) !~ n
+        setByteAt (addr - offset) dest n
 
 writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
 writeIO addr n bus =
     case addr of
         -- writing anything to the divider or scanline register resets them
-        0xff04 -> bus & divider !~ 0
-        0xff44 -> bus & scanline !~ 0
-        _ -> bus & io % byte relativeAddr !~ n
+        0xff04 -> bus{io = setByteAt offset bus.io 0}
+        0xff44 -> bus{io = setByteAt offset bus.io 0}
+        _ -> bus{io = setByteAt offset bus.io n}
   where
-    relativeAddr = addr - 0xff00
+    offset = addr - 0xff00
 
 readU16 :: MemoryBus -> U16 -> U16
 readU16 bus addr =
@@ -108,68 +104,93 @@ readU16 bus addr =
         (readByte bus $ addr + 1)
         (readByte bus addr)
 
-scanline :: Lens' MemoryBus U8
-scanline = io % byte 0x44
+scanline :: MemoryBus -> U8
+scanline bus = readByte bus 0xff44
 
-lcdc :: Lens' MemoryBus U8
-lcdc = io % byte 0x40
+lcdc :: MemoryBus -> U8
+lcdc bus = readByte bus 0xff40
 
-lcdEnable :: Lens' MemoryBus Bool
-lcdEnable = lcdc % bit 7
+lcdEnable :: MemoryBus -> Bool
+lcdEnable bus = Bits.testBit (lcdc bus) 7
 
-displayWindow :: Lens' MemoryBus Bool
-displayWindow = lcdc % bit 5
+displayWindow :: MemoryBus -> Bool
+displayWindow bus = Bits.testBit (lcdc bus) 5
 
-spriteUsesTwoTiles :: Lens' MemoryBus Bool
-spriteUsesTwoTiles = lcdc % bit 2
+spriteUsesTwoTiles :: MemoryBus -> Bool
+spriteUsesTwoTiles bus = Bits.testBit (lcdc bus) 2
 
-objEnabled :: Lens' MemoryBus Bool
-objEnabled = lcdc % bit 1
+objEnabled :: MemoryBus -> Bool
+objEnabled bus = Bits.testBit (lcdc bus) 1
 
-lcdStatus :: Lens' MemoryBus U8
-lcdStatus = io % byte 0x41
+lcdStatus :: MemoryBus -> U8
+lcdStatus bus = readByte bus 0xff41
 
-viewportY :: Lens' MemoryBus U8
-viewportY = io % byte 0x42
+setSTAT :: U8 -> MemoryBus -> MemoryBus
+setSTAT n bus = bus{io = setByteAt 0x41 bus.io n}
 
-viewportX :: Lens' MemoryBus U8
-viewportX = io % byte 0x43
+viewportY :: MemoryBus -> U8
+viewportY bus = readByte bus 0xff42
 
-lyc :: Lens' MemoryBus U8
-lyc = io % byte 0x45
+viewportX :: MemoryBus -> U8
+viewportX bus = readByte bus 0xff43
 
-windowY :: Lens' MemoryBus U8
-windowY = io % byte 0x4a
+lyc :: MemoryBus -> U8
+lyc bus = readByte bus 0xff45
 
-windowX :: Lens' MemoryBus U8
-windowX = io % byte 0x4b
+windowY :: MemoryBus -> U8
+windowY bus = readByte bus 0xff4a
 
-divider :: Lens' MemoryBus U8
-divider = io % byte 0x04
+windowX :: MemoryBus -> U8
+windowX bus = readByte bus 0x4ffb
 
-tima :: Lens' MemoryBus U8
-tima = io % byte 0x05
+modifyDivider :: (U8 -> U8) -> MemoryBus -> MemoryBus
+modifyDivider f bus =
+    let orig = readByte bus 0xff04
+    in bus{io = setByteAt 0x04 bus.io (f orig)}
 
-tma :: Lens' MemoryBus U8
-tma = io % byte 0x06
+tima :: MemoryBus -> U8
+tima bus = readByte bus 0xff05
 
-tac :: Lens' MemoryBus U8
-tac = io % byte 0x07
+modifyTima :: (U8 -> U8) -> MemoryBus -> MemoryBus
+modifyTima f bus =
+    let orig = readByte bus 0xff05
+    in bus{io = setByteAt 0x05 bus.io (f orig)}
 
-bgPalette :: Lens' MemoryBus U8
-bgPalette = io % byte 0x47
+tma :: MemoryBus -> U8
+tma bus = readByte bus 0xff06
 
-timerEnable :: Lens' MemoryBus Bool
-timerEnable = tac % bit 2
+tac :: MemoryBus -> U8
+tac bus = readByte bus 0xff07
 
-interruptFlags :: Lens' MemoryBus U8
-interruptFlags = io % byte 0x0f
+bgPalette :: MemoryBus -> U8
+bgPalette bus = readByte bus 0xff47
 
-timerIntRequested :: Lens' MemoryBus Bool
-timerIntRequested = interruptFlags % bit 2
+timerEnable :: MemoryBus -> Bool
+timerEnable bus = Bits.testBit (tac bus) 2
 
-dma :: Lens' MemoryBus U8
-dma = io % byte 0x46
+interruptFlags :: MemoryBus -> U8
+interruptFlags bus = readByte bus 0xff0f
+
+interruptRequested :: Int -> MemoryBus -> Bool
+interruptRequested interrupt bus =
+    Bits.testBit (interruptFlags bus) interrupt
+
+timerIntRequested :: MemoryBus -> Bool
+timerIntRequested = interruptRequested 2
+
+toggleInterrupt :: Bool -> Int -> MemoryBus -> MemoryBus
+toggleInterrupt enabled interrupt bus =
+    let
+        change = if enabled then Bits.setBit else Bits.clearBit
+        val = change (readByte bus 0xff0f) interrupt
+    in
+        writeByte 0xff0f val bus
+
+requestInterrupt :: Int -> MemoryBus -> MemoryBus
+requestInterrupt = toggleInterrupt True
+
+disableInterrupt :: Int -> MemoryBus -> MemoryBus
+disableInterrupt = toggleInterrupt False
 
 {- FOURMOLU_DISABLE -}
 
@@ -232,22 +253,18 @@ readCartridgeType = \case
     unhandled -> UnhandledCartridgeType unhandled
 
 data CartridgeHeader = CartridgeHeader
-    { _title :: String
-    , _cgb :: U8
-    , _sgb :: U8
-    , _cartridgeType :: CartridgeType
+    { title :: String
+    , cgb :: U8
+    , sgb :: U8
+    , cartridgeType :: CartridgeType
     }
     deriving (Show)
-
-makeLenses ''CartridgeHeader
 
 data Cartridge = Cartridge
-    { _memory :: Memory
-    , _header :: Maybe CartridgeHeader
+    { memory :: Memory
+    , header :: Maybe CartridgeHeader
     }
     deriving (Show)
-
-makeLenses ''Cartridge
 
 readCartridgeHeader :: Memory -> Maybe CartridgeHeader
 readCartridgeHeader mem =
@@ -273,15 +290,15 @@ defaultMemoryBus :: MemoryBus
 defaultMemoryBus =
     -- TODO: set correct initial values
     MemoryBus
-        { _ie = 0x0 -- TODO check this
-        , _hram = mkEmptyMemory 0x80
-        , _gamepadState = noButtonsPressed
-        , _io = ioInitialValues
-        , _oam = mkEmptyMemory 0x100
-        , _wram = mkEmptyMemory 0x2000
-        , _sram = mkEmptyMemory 0x2000
-        , _vram = mkEmptyMemory 0x2000
-        , _cartridge = mkEmptyMemory 0x8000
+        { ie = 0x0 -- TODO check this
+        , hram = mkEmptyMemory 0x80
+        , gamepadState = noButtonsPressed
+        , io = ioInitialValues
+        , oam = mkEmptyMemory 0x100
+        , wram = mkEmptyMemory 0x2000
+        , sram = mkEmptyMemory 0x2000
+        , vram = mkEmptyMemory 0x2000
+        , cartridge = mkEmptyMemory 0x8000
         }
 
 mkEmptyMemory :: U16 -> Memory
@@ -291,11 +308,11 @@ mkEmptyMemory len =
 initializeMemoryBus :: FilePath -> IO MemoryBus
 initializeMemoryBus path = do
     cart <- loadCartridgeFromFile path
-    case cart._header of
+    case cart.header of
         Nothing -> putStrLn "No cartridge header could be read"
         Just h -> do
-            putStrLn $ "Loaded cartride:  " <> h._title
-            putStrLn $ "Cartridge type:  " <> show h._cartridgeType
-            putStrLn $ "CGB:  " <> toHex h._cgb
-            putStrLn $ "SGB:  " <> toHex h._sgb
-    pure $ set cartridge cart._memory defaultMemoryBus
+            putStrLn $ "Loaded cartride:  " <> h.title
+            putStrLn $ "Cartridge type:  " <> show h.cartridgeType
+            putStrLn $ "CGB:  " <> toHex h.cgb
+            putStrLn $ "SGB:  " <> toHex h.sgb
+    pure $ defaultMemoryBus{cartridge = cart.memory}

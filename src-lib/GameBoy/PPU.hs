@@ -14,7 +14,6 @@ import Data.Bits qualified as Bits
 import Data.Int (Int32)
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Optics
 
 import GameBoy.BitStuff
 import GameBoy.Memory
@@ -23,40 +22,20 @@ import GameBoy.State
 data TileMapArea = Area9800 | Area9C00
     deriving (Show)
 
-tileMapAreaIso :: Iso' Bool TileMapArea
-tileMapAreaIso =
-    iso
-        (\x -> if x then Area9C00 else Area9800)
-        (\case Area9C00 -> True; Area9800 -> False)
+windowTileMapArea :: MemoryBus -> TileMapArea
+windowTileMapArea bus =
+    if Bits.testBit (lcdc bus) 6 then Area9C00 else Area9800
 
-windowTileMapArea :: Lens' MemoryBus TileMapArea
-windowTileMapArea = lcdc % bit 6 % tileMapAreaIso
+bgTileMapArea :: MemoryBus -> TileMapArea
+bgTileMapArea bus =
+    if Bits.testBit (lcdc bus) 3 then Area9C00 else Area9800
 
 data AddressingMode = Mode8000 | Mode8800
     deriving (Show)
 
-addressingModeIso :: Iso' Bool AddressingMode
-addressingModeIso =
-    iso
-        (\x -> if x then Mode8000 else Mode8800)
-        (\case Mode8000 -> True; Mode8800 -> False)
-
-addressingMode :: Lens' MemoryBus AddressingMode
-addressingMode = lcdc % bit 4 % addressingModeIso
-
-bgTileMapArea :: Lens' MemoryBus TileMapArea
-bgTileMapArea = lcdc % bit 3 % tileMapAreaIso
-
-data Priority = PixelPriority | IgnorePixelPriority
-
-priorityIso :: Iso' Bool Priority
-priorityIso =
-    iso
-        (\x -> if x then IgnorePixelPriority else PixelPriority)
-        (\case IgnorePixelPriority -> True; PixelPriority -> False)
-
-bgWindowMasterPriority :: Lens' MemoryBus Priority
-bgWindowMasterPriority = lcdc % bit 0 % priorityIso
+addressingMode :: MemoryBus -> AddressingMode
+addressingMode bus =
+    if Bits.testBit (lcdc bus) 4 then Mode8000 else Mode8800
 
 data Color = Color0 | Color1 | Color2 | Color3
     deriving (Eq, Show, Enum)
@@ -112,11 +91,9 @@ readTileRow bus flipMode addr row =
             _ -> row
 
 data ScanlineColors = ScanlineColors
-    { _index :: Int
-    , _colors :: Vector U8
+    { index :: Int
+    , colors :: Vector U8
     }
-
-makeLenses ''ScanlineColors
 
 translateTileColors :: U8 -> Color -> U8
 translateTileColors palette = \case
@@ -128,17 +105,17 @@ translateTileColors palette = \case
 readScanlineColors :: MemoryBus -> ScanlineColors
 readScanlineColors bus =
     let
-        y = bus ^. viewportY
-        x = bus ^. viewportX
-        wy = bus ^. windowY
-        wx = bus ^. windowX - 7
-        mode = bus ^. addressingMode
-        currentLine = bus ^. scanline
-        useWindow = view displayWindow bus && wy <= currentLine
+        y = viewportY bus
+        x = viewportX bus
+        wy = windowY bus
+        wx = windowX bus - 7
+        mode = addressingMode bus
+        currentLine = scanline bus
+        useWindow = displayWindow bus && wy <= currentLine
         tileMapStart = determineTileMapAddr useWindow
         ypos = if useWindow then currentLine - wy else currentLine + y
         vertTileIndexOffset = (toU16 ypos .>>. 3) .<<. 5
-        currentPalette = bus ^. bgPalette
+        currentPalette = bgPalette bus
     in
         -- TODO: "preload" only the necessary tiles, _then_ loop
         ScanlineColors (fromIntegral currentLine) $
@@ -161,8 +138,8 @@ readScanlineColors bus =
     determineTileMapAddr useWindow =
         tileMapAreaToAddr $
             if useWindow
-                then bus ^. windowTileMapArea
-                else bus ^. bgTileMapArea
+                then windowTileMapArea bus
+                else bgTileMapArea bus
     tileMapAreaToAddr = \case
         Area9800 -> 0x9800
         Area9C00 -> 0x9C00
@@ -193,13 +170,9 @@ determineNextLcdStatus counter line status =
 
 drawScanline :: GameBoy ()
 drawScanline = do
-    bus <- use memoryBus
+    bus <- gets (.memoryBus)
     let scanlineColors = readScanlineColors bus
-    modifying'
-        screen
-        ( Vector.//
-            [(scanlineColors._index, scanlineColors._colors)]
-        )
+    modifyScreenM (Vector.// [(scanlineColors.index, scanlineColors.colors)])
 
 readFlipMode :: U8 -> FlipMode
 readFlipMode spriteAttrs =
@@ -211,17 +184,17 @@ readFlipMode spriteAttrs =
 
 drawSprites :: GameBoy ()
 drawSprites = do
-    bus <- use memoryBus
+    bus <- gets (.memoryBus)
     forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
         let
             spriteIndex = sprite * 4 -- 4 bytes per sprite
-            y = bus ^. oam % byte spriteIndex - 16
-            x = bus ^. oam % byte (spriteIndex + 1) - 8
-            tileOffset = bus ^. oam % byte (spriteIndex + 2)
-            attrs = bus ^. oam % byte (spriteIndex + 3)
+            y = oamRead spriteIndex bus - 16
+            x = oamRead (spriteIndex + 1) bus - 8
+            tileOffset = oamRead (spriteIndex + 2) bus
+            attrs = oamRead (spriteIndex + 3) bus
             flipMode = readFlipMode attrs
-            currentLine = fromIntegral $ bus ^. scanline
-            height = if (bus ^. spriteUsesTwoTiles) then 16 else 8
+            currentLine = fromIntegral $ scanline bus
+            height = if spriteUsesTwoTiles bus then 16 else 8
             line = currentLine - y
         when (line >= 0 && line < height) $ do
             -- FIXME: transparency!
@@ -229,79 +202,79 @@ drawSprites = do
                 tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
                 tileRow = readTileRow bus flipMode tileMemStart (fromIntegral line)
                 dummyPalette = readByte bus $ if Bits.testBit attrs 4 then 0xff49 else 0xff48
-            modifying'
-                screen
-                ( \scr ->
-                    let
-                        v = scr Vector.! fromIntegral currentLine
-                        v' =
-                            v
-                                Vector.// ( fmap
-                                                ( \i ->
-                                                    ( fromIntegral x + i
-                                                    , fmap (translateTileColors dummyPalette) tileRow Vector.! i
-                                                    )
+            modifyScreenM $ \scr ->
+                let
+                    v = scr Vector.! fromIntegral currentLine
+                    v' =
+                        v
+                            Vector.// ( fmap
+                                            ( \i ->
+                                                ( fromIntegral x + i
+                                                , fmap (translateTileColors dummyPalette) tileRow Vector.! i
                                                 )
-                                                [0 .. 7]
-                                          )
-                    in
-                        scr Vector.// [(fromIntegral currentLine, v')]
-                )
+                                            )
+                                            [0 .. 7]
+                                      )
+                in
+                    scr Vector.// [(fromIntegral currentLine, v')]
 
 setLcdStatus :: GameBoy ()
 setLcdStatus = do
     s <- get
-    let status = s ^. memoryBus % lcdStatus
-    if s ^. memoryBus % lcdEnable -- TODO: check status instead
+    let status = lcdStatus s.memoryBus
+    if lcdEnable s.memoryBus -- TODO: check status instead
         then do
             let
-                line = s ^. memoryBus % scanline
-                oldMode = (s ^. memoryBus % lcdStatus) .&. 0b11
+                line = scanline s.memoryBus
+                oldMode = status .&. 0b11
                 (newMode, needStatInterrupt, newStatus) =
-                    determineNextLcdStatus (s ^. scanlineCounter) line status
+                    determineNextLcdStatus s.scanlineCounter line status
             when (newMode /= oldMode && newMode == 3) $ do
                 -- FIXME/TODO: check BG priority here!
                 drawScanline
-                when (s ^. memoryBus % objEnabled) drawSprites
+                when (objEnabled s.memoryBus) drawSprites
             when (needStatInterrupt && newMode /= oldMode) $
-                assign' (memoryBus % interruptFlags % bit 1) True
-            compareValue <- use (memoryBus % lyc)
+                modifyBusM $
+                    requestInterrupt 1
+            compareValue <- gets (lyc . (.memoryBus))
             -- coincidence check
             if line == compareValue
                 then do
                     let finalStatus = Bits.setBit newStatus 2
                     when (Bits.testBit finalStatus 6) $
-                        (assign' (memoryBus % interruptFlags % bit 1) True)
-                    assign' (memoryBus % lcdStatus) finalStatus
-                else assign' (memoryBus % lcdStatus) (Bits.clearBit newStatus 2)
+                        modifyBusM $
+                            requestInterrupt 1
+                    modifyBusM $ setSTAT finalStatus
+                else modifyBusM $ setSTAT (Bits.clearBit newStatus 2)
         else do
-            assign' screen emptyScreen
-            assign' preparedScreen emptyScreen
-            assign' scanlineCounter 456
-            assign' (memoryBus % scanline) 0
+            modify' $ \s' ->
+                s'
+                    { screen = emptyScreen
+                    , preparedScreen = emptyScreen
+                    , scanlineCounter = 456
+                    }
+            modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io 0} -- TODO: DIV
             -- TODO refactor mode reading/setting
             -- set vblank mode
             let status' = Bits.setBit (Bits.clearBit status 1) 0
-            assign' (memoryBus % lcdStatus) status'
+            modifyBusM $ setSTAT status'
 
 updateGraphics :: Int -> GameBoy ()
 updateGraphics cycles = do
     setLcdStatus
     s <- get
-    when (s ^. memoryBus % lcdEnable) $ do
-        let counter = s ^. scanlineCounter - cycles
+    when (lcdEnable s.memoryBus) $ do
+        let counter = s.scanlineCounter - cycles
         if counter > 0
-            then assign' scanlineCounter counter
+            then modify' $ \s' -> s'{scanlineCounter = counter}
             else do
-                modifying' scanlineCounter (+ 456)
-                modifying' (memoryBus % scanline) (+ 1)
-                line <- use (memoryBus % scanline)
+                modify' $ \s' -> s'{scanlineCounter = s'.scanlineCounter + 456}
+                modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io (readByte bus 0xff44 + 1)} -- TODO: DIV
+                line <- gets (scanline . (.memoryBus))
                 if
                     | line == 144 -> do
-                        prepared <- use screen
-                        assign' preparedScreen prepared
-                        assign' screen emptyScreen
-                        assign' (memoryBus % interruptFlags % bit 0) True
+                        modify' $ \s' -> s'{screen = emptyScreen, preparedScreen = s'.screen}
+                        modifyBusM $ requestInterrupt 0
                     | line > 153 -> do
-                        assign' (memoryBus % scanline) 0
+                        modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io 0}
                     | otherwise -> pure ()

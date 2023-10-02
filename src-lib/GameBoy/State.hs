@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
@@ -8,58 +9,70 @@
 module GameBoy.State where
 
 import Control.Monad.State.Strict
+import Data.Bits ((.&.))
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Optics
 
 import GameBoy.BitStuff
 import GameBoy.Memory
 
 data Registers = Registers
-    { _a :: U8
-    , _b :: U8
-    , _c :: U8
-    , _d :: U8
-    , _e :: U8
-    , _h :: U8
-    , _l :: U8
+    { a :: U8
+    , b :: U8
+    , c :: U8
+    , d :: U8
+    , e :: U8
+    , h :: U8
+    , l :: U8
     , -- TODO: benchmark later whether a simple Haskell value can be used here
       -- to make everything more readable
-      _f :: U8
-    , _pc :: U16
-    , _sp :: U16
+      f :: U8
+    , pc :: U16
+    , sp :: U16
     }
     deriving stock (Eq)
 
-makeLenses ''Registers
+bc :: Registers -> U16
+bc rs = combineBytes rs.b rs.c
 
-combineRegisters :: Lens' Registers U8 -> Lens' Registers U8 -> Lens' Registers U16
-combineRegisters hiL loL =
-    lens
-        (\r -> combineBytes (view hiL r) (view loL r))
-        (\r n -> let (hi, lo) = splitIntoBytes n in r & hiL !~ hi & loL !~ lo)
+setBC :: U16 -> Registers -> Registers
+setBC n rs =
+    let (hi, lo) = splitIntoBytes n
+    in rs{b = hi, c = lo}
 
-bc :: Lens' Registers U16
-bc = combineRegisters b c
+de :: Registers -> U16
+de rs = combineBytes rs.d rs.e
 
-de :: Lens' Registers U16
-de = combineRegisters d e
+setDE :: U16 -> Registers -> Registers
+setDE n rs =
+    let (hi, lo) = splitIntoBytes n
+    in rs{d = hi, e = lo}
 
-hl :: Lens' Registers U16
-hl = combineRegisters h l
+hl :: Registers -> U16
+hl rs = combineBytes rs.h rs.l
 
-af :: Lens' Registers U16
-af = combineRegisters a f
+setHL :: U16 -> Registers -> Registers
+setHL n rs =
+    let (hi, lo) = splitIntoBytes n
+    in rs{h = hi, l = lo}
+
+af :: Registers -> U16
+af rs = combineBytes rs.a rs.f
+
+setAF :: U16 -> Registers -> Registers
+setAF n rs =
+    let (hi, lo) = splitIntoBytes (0xfff0 .&. n)
+    in rs{a = hi, f = lo}
 
 {- FOURMOLU_DISABLE -}
 instance Show Registers where
-    show r = mconcat
-        [ "AF = " , toHex (view af r)
-        , " | BC = " , toHex (view bc r)
-        , " | DE = " , toHex (view de r)
-        , " | HL = " , toHex (view hl r)
-        , " | PC = " , toHex (view pc r)
-        , " | SP = " , toHex (view sp r)
+    show rs = mconcat
+        [ "AF = " , toHex (af rs)
+        , " | BC = " , toHex (bc rs)
+        , " | DE = " , toHex (de rs)
+        , " | HL = " , toHex (hl rs)
+        , " | PC = " , toHex rs.pc
+        , " | SP = " , toHex rs.sp
         ]
 {- FOURMOLU_ENABLE -}
 
@@ -71,25 +84,17 @@ emptyScreen = Vector.replicate 144 emptyLine
     emptyLine = Vector.replicate 160 0
 
 data CPUState = CPUState
-    { _registers :: Registers
-    , _memoryBus :: MemoryBus
-    , _dividerCounter :: Int
-    , _timerCounter :: Int
-    , _masterInterruptEnable :: Bool
-    , _scanlineCounter :: Int
-    , _screen :: InMemoryScreen
-    , _preparedScreen :: InMemoryScreen
-    , _halted :: Bool
+    { registers :: Registers
+    , memoryBus :: MemoryBus
+    , dividerCounter :: Int
+    , timerCounter :: Int
+    , masterInterruptEnable :: Bool
+    , scanlineCounter :: Int
+    , screen :: InMemoryScreen
+    , preparedScreen :: InMemoryScreen
+    , halted :: Bool
     }
     deriving stock (Show)
-
-makeLenses ''CPUState
-
-programCounter :: Lens' CPUState U16
-programCounter = registers % pc
-
-stackPointer :: Lens' CPUState U16
-stackPointer = registers % sp
 
 mkInitialState :: MemoryBus -> CPUState
 mkInitialState bus =
@@ -97,16 +102,25 @@ mkInitialState bus =
   where
     initialRegisters =
         Registers
-            { _a = 0x1
-            , _b = 0
-            , _c = 0x13
-            , _d = 0
-            , _e = 0xd8
-            , _h = 0x1
-            , _l = 0x4d
-            , _f = 0xb0
-            , _pc = 0x100 -- start without BIOS for now
-            , _sp = 0xfffe
+            { a = 0x1
+            , b = 0
+            , c = 0x13
+            , d = 0
+            , e = 0xd8
+            , h = 0x1
+            , l = 0x4d
+            , f = 0xb0
+            , pc = 0x100 -- start without BIOS for now
+            , sp = 0xfffe
             }
+
+modifyBusM :: (MemoryBus -> MemoryBus) -> GameBoy ()
+modifyBusM fn = modify' $ \s -> s{memoryBus = fn s.memoryBus}
+
+modifyRegistersM :: (Registers -> Registers) -> GameBoy ()
+modifyRegistersM fn = modify' $ \s -> s{registers = fn s.registers}
+
+modifyScreenM :: (InMemoryScreen -> InMemoryScreen) -> GameBoy ()
+modifyScreenM f = modify' $ \s -> s{screen = f s.screen}
 
 type GameBoy a = StateT CPUState IO a

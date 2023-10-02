@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module GameBoy.Main (main) where
@@ -9,7 +10,6 @@ import Control.Monad
 import Control.Monad.State.Strict
 import Data.IORef
 import Data.Time qualified as Time
-import Optics
 import System.Environment qualified as Environment
 import System.IO
 
@@ -35,7 +35,7 @@ mainLoop scrRef buttonsRef = do
         -- TODO: it feels wrong to start at 0 here
         -- shouldn't we use the superfluous cycles from the frame before?
         oneFrame 0
-        scr <- use preparedScreen
+        scr <- gets (.preparedScreen)
         liftIO $ writeIORef scrRef scr
         if (frames == 59)
             then do
@@ -49,8 +49,14 @@ mainLoop scrRef buttonsRef = do
     oneFrame n = when (n < maxCyclesPerFrame) $ do
         syncInput
         s <- get
+        -- let
+        --     serialControl = readByte s.memoryBus 0xff02
+        --     msg' = if (serialControl == 0x81) then BS.cons (readByte s.memoryBus 0xff01) msg else msg
+        -- when (serialControl == 0x81) $ do
+        --     writeMemory 0xff02 0
+        --     liftIO $ putStrLn $ "DBG: " <> reverse (Char8.unpack msg')
         cycles <-
-            if not $ s ^. halted
+            if not s.halted
                 then do
                     instr <- fetch
                     cycles <- execute instr
@@ -59,8 +65,7 @@ mainLoop scrRef buttonsRef = do
                     pure cycles
                 else do
                     -- liftIO $ putStrLn "  [HALT]"
-                    when (s ^. memoryBus % interruptFlags > 0) $
-                        assign' halted False
+                    when (interruptFlags s.memoryBus > 0) continue
                     pure 4
         updateTimers cycles
         updateGraphics cycles
@@ -69,7 +74,7 @@ mainLoop scrRef buttonsRef = do
     syncInput = do
         buttons <- liftIO $ STM.readTVarIO buttonsRef
         -- unless (Set.null buttons) (liftIO $ print buttons)
-        assign' (memoryBus % gamepadState) buttons
+        modifyBusM $ \bus -> bus{gamepadState = buttons}
 
 -- snapshotBackgroundArea = do
 --     bus <- use memoryBus

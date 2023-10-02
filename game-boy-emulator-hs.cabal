@@ -30,7 +30,6 @@ library
     , bytestring
     , containers
     , mtl
-    , optics
     , sdl2
     , stm
     , time
@@ -60,7 +59,6 @@ test-suite game-boy-emulator-hs-test
     , base
     , game-boy-emulator-hs
     , mtl
-    , optics
     , tasty
     , tasty-hunit
     , vector
