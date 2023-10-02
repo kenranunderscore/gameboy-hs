@@ -84,15 +84,15 @@ emptyScreen = Vector.replicate 144 emptyLine
     emptyLine = Vector.replicate 160 0
 
 data CPUState = CPUState
-    { _registers :: Registers
-    , _memoryBus :: MemoryBus
-    , _dividerCounter :: Int
-    , _timerCounter :: Int
-    , _masterInterruptEnable :: Bool
-    , _scanlineCounter :: Int
-    , _screen :: InMemoryScreen
-    , _preparedScreen :: InMemoryScreen
-    , _halted :: Bool
+    { registers :: Registers
+    , memoryBus :: MemoryBus
+    , dividerCounter :: Int
+    , timerCounter :: Int
+    , masterInterruptEnable :: Bool
+    , scanlineCounter :: Int
+    , screen :: InMemoryScreen
+    , preparedScreen :: InMemoryScreen
+    , halted :: Bool
     }
     deriving stock (Show)
 
@@ -115,12 +115,12 @@ mkInitialState bus =
             }
 
 modifyBusM :: (MemoryBus -> MemoryBus) -> GameBoy ()
-modifyBusM fn = modify' $ \s -> s{_memoryBus = fn s._memoryBus}
+modifyBusM fn = modify' $ \s -> s{memoryBus = fn s.memoryBus}
 
 modifyRegistersM :: (Registers -> Registers) -> GameBoy ()
-modifyRegistersM fn = modify' $ \s -> s{_registers = fn s._registers}
+modifyRegistersM fn = modify' $ \s -> s{registers = fn s.registers}
 
 modifyScreenM :: (InMemoryScreen -> InMemoryScreen) -> GameBoy ()
-modifyScreenM f = modify' $ \s -> s{_screen = f s._screen}
+modifyScreenM f = modify' $ \s -> s{screen = f s.screen}
 
 type GameBoy a = StateT CPUState IO a

@@ -44,7 +44,7 @@ hasFlag :: Flag -> Registers -> Bool
 hasFlag fl rs = Bits.testBit rs.f (flagBit fl)
 
 hasFlag' :: Flag -> CPUState -> Bool
-hasFlag' fl s = hasFlag fl s._registers
+hasFlag' fl s = hasFlag fl s.registers
 
 modifyProgramCounter :: (U16 -> U16) -> Registers -> Registers
 modifyProgramCounter f rs = rs{pc = f rs.pc}
@@ -52,7 +52,7 @@ modifyProgramCounter f rs = rs{pc = f rs.pc}
 -- TODO: add set* version
 modifyProgramCounterM :: (U16 -> U16) -> GameBoy ()
 modifyProgramCounterM f = modify' $ \s ->
-    s{_registers = modifyProgramCounter f s._registers}
+    s{registers = modifyProgramCounter f s.registers}
 
 modifyStackPointer :: (U16 -> U16) -> Registers -> Registers
 modifyStackPointer f rs = rs{sp = f rs.sp}
@@ -60,7 +60,7 @@ modifyStackPointer f rs = rs{sp = f rs.sp}
 -- TODO: add set* version
 modifyStackPointerM :: (U16 -> U16) -> GameBoy ()
 modifyStackPointerM f = modify' $ \s ->
-    s{_registers = modifyStackPointer f s._registers}
+    s{registers = modifyStackPointer f s.registers}
 
 advance :: U16 -> GameBoy ()
 advance n = modifyProgramCounterM (+ n)
@@ -100,7 +100,7 @@ setRegister :: TargetRegister -> U8 -> Registers -> Registers
 setRegister r = modifyRegister r . const
 
 setRegister' :: TargetRegister -> U8 -> CPUState -> CPUState
-setRegister' r n s = s{_registers = setRegister r n s._registers}
+setRegister' r n s = s{registers = setRegister r n s.registers}
 
 setRegisterM :: TargetRegister -> U8 -> GameBoy ()
 setRegisterM r n = modifyRegistersM $ setRegister r n
@@ -117,7 +117,7 @@ readRegister16 rr rs =
 
 readRegister16M :: TargetRegister16 -> GameBoy U16
 readRegister16M rr = do
-    rs <- gets (._registers)
+    rs <- gets (.registers)
     pure $ readRegister16 rr rs
 
 -- TODO: try out using set* as primitive operation
@@ -263,7 +263,7 @@ data Instr
     | SWAP_derefHL
     | ADD_HL TargetRegister16
     | ADD_HLSP
-    | ADDSP I8
+    | ADD_SP I8
     | RES Int TargetRegister
     | RES_derefHL Int
     | SET Int TargetRegister
@@ -373,7 +373,7 @@ instance Show Instr where
         SWAP_derefHL -> "SWAP (HL)"
         ADD_HL rr -> "ADD HL," <> show rr
         ADD_HLSP -> "ADD HL,SP"
-        ADDSP n -> "ADD SP," <> show n
+        ADD_SP n -> "ADD SP," <> show n
         RES n r -> "RES " <> show n <> "," <> show r
         RES_derefHL n -> "RES " <> show n <> ",(HL)"
         SET n r -> "SET " <> show n <> "," <> show r
@@ -404,7 +404,7 @@ fetchByteM :: GameBoy U8
 fetchByteM = do
     s <- get
     advance 1
-    pure $ readByte s._memoryBus s._registers.pc
+    pure $ readByte s.memoryBus s.registers.pc
 
 fetchI8M :: GameBoy I8
 fetchI8M = do
@@ -414,7 +414,7 @@ fetchU16M :: GameBoy U16
 fetchU16M = do
     s <- get
     advance 2
-    pure $ readU16 s._memoryBus s._registers.pc
+    pure $ readU16 s.memoryBus s.registers.pc
 
 {- FOURMOLU_DISABLE -}
 
@@ -478,8 +478,8 @@ fetch :: GameBoy Instruction
 fetch = do
     s <- get
     let
-        counter = s._registers.pc
-        bus = s._memoryBus
+        counter = s.registers.pc
+        bus = s.memoryBus
     advance 1
     let n = readByte bus counter
     if n == 0xcb
@@ -713,7 +713,7 @@ fetch = do
                 0xe5 -> pure $ PUSH HL
                 0xe6 -> AND_u8 <$> fetchByteM
                 0xe7 -> pure $ RST Rst20
-                0xe8 -> ADDSP <$> fetchI8M
+                0xe8 -> ADD_SP <$> fetchI8M
                 0xe9 -> pure JP_HL
                 0xea -> LD_u16_A <$> fetchU16M
                 0xee -> XOR_u8 <$> fetchByteM
@@ -738,8 +738,8 @@ fetchPrefixed :: GameBoy Instruction
 fetchPrefixed = do
     s <- get
     let
-        counter = s._registers.pc
-        bus = s._memoryBus
+        counter = s.registers.pc
+        bus = s.memoryBus
     advance 1
     let
         n = readByte bus counter
@@ -1017,9 +1017,9 @@ writeMemory addr n =
         -- HACK: "listen" for changes that potentially cascade to other state
         -- changes here
         0xff07 -> do
-            freq <- gets (timerFrequency . (._memoryBus))
+            freq <- gets (timerFrequency . (.memoryBus))
             modifyBusM (writeByte addr n)
-            freq' <- gets (timerFrequency . (._memoryBus))
+            freq' <- gets (timerFrequency . (.memoryBus))
             when (freq' /= freq) $
                 setTimerCounterM (counterFromFrequency freq')
         _ -> modifyBusM (writeByte addr n)
@@ -1027,7 +1027,7 @@ writeMemory addr n =
 push :: U16 -> GameBoy ()
 push n = do
     s <- get
-    let curr = s._registers.sp
+    let curr = s.registers.sp
     modifyStackPointerM (\x -> x - 2)
     writeMemory (curr - 1) hi
     writeMemory (curr - 2) lo
@@ -1038,7 +1038,7 @@ pop :: GameBoy U16
 pop = do
     s <- get
     modifyStackPointerM (+ 2)
-    pure $ readU16 s._memoryBus s._registers.sp
+    pure $ readU16 s.memoryBus s.registers.sp
 
 dec :: TargetRegister -> GameBoy ()
 dec r = modifyRegistersM $ \rs ->
@@ -1072,7 +1072,7 @@ ld_r_r r r' = modifyRegistersM $ \rs ->
 deref :: TargetRegister16 -> GameBoy U8
 deref rr = do
     s <- get
-    pure $ readByte s._memoryBus (readRegister16 rr s._registers)
+    pure $ readByte s.memoryBus (readRegister16 rr s.registers)
 
 execute :: Instruction -> GameBoy Int
 execute Instruction{tag, baseCycles} =
@@ -1082,12 +1082,12 @@ execute Instruction{tag, baseCycles} =
         LD_u16 rr n ->
             exec $ setRegister16M rr n
         LD_deref_rr_A rr -> exec $ do
-            rs <- gets (._registers)
+            rs <- gets (.registers)
             writeMemory (readRegister16 rr rs) rs.a
         LDSP_u16 n ->
             exec $ modifyStackPointerM (const n)
         LD_u16SP n -> exec $ do
-            stackPointer <- gets (._registers.sp)
+            stackPointer <- gets (.registers.sp)
             let (hi, lo) = splitIntoBytes stackPointer
             writeMemory n lo
             writeMemory (n + 1) hi
@@ -1095,15 +1095,15 @@ execute Instruction{tag, baseCycles} =
             n <- deref HL
             setRegisterM r n
         LD_HLminus_A -> exec $ do
-            rs <- gets (._registers)
+            rs <- gets (.registers)
             writeMemory (hl rs) rs.a
             modifyRegister16M HL (\x -> x - 1)
         LD_HLplus_A -> exec $ do
-            rs <- gets (._registers)
+            rs <- gets (.registers)
             writeMemory (hl rs) rs.a
             modifyRegister16M HL (+ 1)
         LD_HLderef_u8 n -> exec $ do
-            rs <- gets (._registers)
+            rs <- gets (.registers)
             writeMemory (hl rs) n
         LD_A_deref rr -> exec $ do
             n <- deref rr
@@ -1116,30 +1116,30 @@ execute Instruction{tag, baseCycles} =
             modifyRegistersM $ setRegister A n . modifyRegister16 HL (\x -> x - 1)
         LD_A_FF00plusU8 n -> exec $ do
             modify' $ \s ->
-                setRegister' A (readByte s._memoryBus (0xff00 + fromIntegral n)) s
+                setRegister' A (readByte s.memoryBus (0xff00 + fromIntegral n)) s
         LD_A_FF00plusC -> exec $ do
             modify' $ \s ->
-                let offset = s._registers.c
-                in setRegister' A (readByte s._memoryBus (0xff00 + fromIntegral offset)) s
+                let offset = s.registers.c
+                in setRegister' A (readByte s.memoryBus (0xff00 + fromIntegral offset)) s
         LD_A_derefU16 n -> exec $ do
             modify' $ \s ->
-                setRegister' A (readByte s._memoryBus n) s
+                setRegister' A (readByte s.memoryBus n) s
         LD_u8 r n ->
             exec $ setRegisterM r n
         LD r r' ->
             exec $ ld_r_r r r'
         LD_u16_A n -> exec $ do
-            rs <- gets (._registers)
+            rs <- gets (.registers)
             writeMemory n rs.a
         LD_FF00plusC_A -> exec $ do
             s <- get
-            let offset = fromIntegral s._registers.c
-            writeMemory (0xff00 + offset) s._registers.a
+            let offset = fromIntegral s.registers.c
+            writeMemory (0xff00 + offset) s.registers.a
         LD_FF00plusU8_A n -> exec $ do
             s <- get
-            writeMemory (0xff00 + fromIntegral n) s._registers.a
+            writeMemory (0xff00 + fromIntegral n) s.registers.a
         LD_derefHL r -> exec $ do
-            rs <- gets (._registers)
+            rs <- gets (.registers)
             writeMemory (hl rs) (readRegister r rs)
         LDSP_HL -> exec $ do
             modifyRegistersM $ \rs ->
@@ -1206,14 +1206,14 @@ execute Instruction{tag, baseCycles} =
             modifyProgramCounterM (const addr)
             enableInterruptsM
         CALL n -> exec $ do
-            counter <- gets (._registers.pc)
+            counter <- gets (.registers.pc)
             push counter
             modifyProgramCounterM (const n)
         CALL_cc cond n -> do
             s <- get
             if (checkFlagCondition cond s)
                 then do
-                    let counter = s._registers.pc
+                    let counter = s.registers.pc
                     push counter
                     modifyProgramCounterM (const n)
                     pure 24
@@ -1228,8 +1228,8 @@ execute Instruction{tag, baseCycles} =
         INC_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
-                orig = readByte s._memoryBus addr
+                addr = hl s.registers
+                orig = readByte s.memoryBus addr
                 val = orig + 1
             writeMemory addr val
             modifyRegistersM $
@@ -1249,8 +1249,8 @@ execute Instruction{tag, baseCycles} =
         DEC_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
-                val = readByte s._memoryBus addr - 1
+                addr = hl s.registers
+                val = readByte s.memoryBus addr - 1
             writeMemory addr val
             modifyRegistersM
                 ( adjustFlag Zero (val == 0)
@@ -1261,7 +1261,7 @@ execute Instruction{tag, baseCycles} =
             n <- readRegister16M rr
             push n
         PUSH_AF -> exec $ do
-            rs <- gets (._registers)
+            rs <- gets (.registers)
             push (af rs)
         POP rr -> exec $ do
             n <- pop
@@ -1321,8 +1321,8 @@ execute Instruction{tag, baseCycles} =
             exec $ add_hl rr
         ADD_HLSP ->
             exec $ add_hlsp -- TODO: refactor
-        ADDSP n ->
-            exec $ addsp n
+        ADD_SP n ->
+            exec $ add_sp n
         SUB r ->
             exec $ sub_a r
         SUB_u8 n ->
@@ -1354,7 +1354,7 @@ execute Instruction{tag, baseCycles} =
         XOR_A_HL ->
             exec $ xor_a_u8 =<< deref HL
         RST addr -> exec $ do
-            counter <- gets (._registers.pc)
+            counter <- gets (.registers.pc)
             push counter
             modifyProgramCounterM (const $ getRestartAddr addr)
         CPL -> exec $ do
@@ -1377,9 +1377,9 @@ execute Instruction{tag, baseCycles} =
         SWAP_derefHL -> exec $ do
             s <- get
             let
-                rs = s._registers
+                rs = s.registers
                 addr = hl rs
-                orig = readByte s._memoryBus addr
+                orig = readByte s.memoryBus addr
                 res = Bits.rotate orig 4
             writeMemory addr res
             modifyRegistersM
@@ -1393,9 +1393,9 @@ execute Instruction{tag, baseCycles} =
         RES_derefHL n -> exec $ do
             s <- get
             let
-                rs = s._registers
+                rs = s.registers
                 addr = hl rs
-                val = readByte s._memoryBus addr
+                val = readByte s.memoryBus addr
                 res = Bits.clearBit val n
             writeMemory addr res
         SET n r ->
@@ -1403,9 +1403,9 @@ execute Instruction{tag, baseCycles} =
         SET_derefHL n -> exec $ do
             s <- get
             let
-                rs = s._registers
+                rs = s.registers
                 addr = hl rs
-                val = readByte s._memoryBus addr
+                val = readByte s.memoryBus addr
                 res = Bits.setBit val n
             writeMemory addr res
         SRL r -> exec $ modifyRegistersM $ \rs ->
@@ -1422,8 +1422,8 @@ execute Instruction{tag, baseCycles} =
         SRL_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
-                orig = readByte s._memoryBus addr
+                addr = hl s.registers
+                orig = readByte s.memoryBus addr
                 res = orig .>>. 1
             writeMemory addr res
             modifyRegistersM $
@@ -1448,9 +1448,9 @@ execute Instruction{tag, baseCycles} =
         RR_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
+                addr = hl s.registers
                 carry = if hasFlag' Carry s then 1 else 0
-                orig = readByte s._memoryBus addr
+                orig = readByte s.memoryBus addr
                 carry' = Bits.testBit orig 0
                 res = Bits.shiftR orig 1 + Bits.shiftL carry 7
             writeMemory addr res
@@ -1475,8 +1475,8 @@ execute Instruction{tag, baseCycles} =
         RRC_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
-                orig = readByte s._memoryBus addr
+                addr = hl s.registers
+                orig = readByte s.memoryBus addr
                 carry = Bits.testBit orig 0
                 res = Bits.rotateR orig 1
             writeMemory addr res
@@ -1502,8 +1502,8 @@ execute Instruction{tag, baseCycles} =
         RL_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
-                orig = readByte s._memoryBus addr
+                addr = hl s.registers
+                orig = readByte s.memoryBus addr
                 carry = if hasFlag' Carry s then 1 else 0
                 carry' = Bits.testBit orig 7
                 res = Bits.shiftL orig 1 + carry
@@ -1529,8 +1529,8 @@ execute Instruction{tag, baseCycles} =
         RLC_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
-                orig = readByte s._memoryBus addr
+                addr = hl s.registers
+                orig = readByte s.memoryBus addr
                 carry = Bits.testBit orig 7
                 res = Bits.rotateL orig 1
             writeMemory addr res
@@ -1555,8 +1555,8 @@ execute Instruction{tag, baseCycles} =
         SLA_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
-                orig = readByte s._memoryBus addr
+                addr = hl s.registers
+                orig = readByte s.memoryBus addr
                 carry = Bits.testBit orig 7
                 res = Bits.shiftL orig 1
             writeMemory addr res
@@ -1582,8 +1582,8 @@ execute Instruction{tag, baseCycles} =
         SRA_derefHL -> exec $ do
             s <- get
             let
-                addr = hl s._registers
-                orig = readByte s._memoryBus addr
+                addr = hl s.registers
+                orig = readByte s.memoryBus addr
                 carry = Bits.testBit orig 0
                 msb = orig .&. 0x80
                 res = Bits.shiftR orig 1 + msb
@@ -1641,11 +1641,14 @@ execute Instruction{tag, baseCycles} =
     exec action = action >> pure baseCycles
 
 halt :: GameBoy ()
-halt = modify' $ \s -> s{_halted = True}
+halt = modify' $ \s -> s{halted = True}
+
+continue :: GameBoy ()
+continue = modify' $ \s -> s{halted = False}
 
 toggleInterruptsM :: Bool -> GameBoy ()
 toggleInterruptsM enabled = modify' $ \s ->
-    s{_masterInterruptEnable = enabled}
+    s{masterInterruptEnable = enabled}
 
 enableInterruptsM :: GameBoy ()
 enableInterruptsM = toggleInterruptsM True
@@ -1653,8 +1656,8 @@ enableInterruptsM = toggleInterruptsM True
 disableInterruptsM :: GameBoy ()
 disableInterruptsM = toggleInterruptsM False
 
-addsp :: I8 -> GameBoy ()
-addsp n = modifyRegistersM $ \rs ->
+add_sp :: I8 -> GameBoy ()
+add_sp n = modifyRegistersM $ \rs ->
     let (res, needsHalfCarry, needsCarry) = add_spPure rs.sp n
     in rs{sp = res}
         & clearFlag Negative
@@ -1945,32 +1948,32 @@ updateTimers :: Int -> GameBoy ()
 updateTimers cycles = do
     updateDivider cycles
     s <- get
-    when (timerEnable s._memoryBus) $ do
-        let counter' = s._timerCounter - cycles
+    when (timerEnable s.memoryBus) $ do
+        let counter' = s.timerCounter - cycles
         setTimerCounterM counter'
         when (counter' <= 0) $ do
-            freq <- gets (timerFrequency . (._memoryBus))
+            freq <- gets (timerFrequency . (.memoryBus))
             setTimerCounterM (counterFromFrequency freq)
-            if tima s._memoryBus == maxBound
+            if tima s.memoryBus == maxBound
                 then do
-                    modifyBusM $ modifyTima (const $ tma s._memoryBus)
+                    modifyBusM $ modifyTima (const $ tma s.memoryBus)
                     modifyBusM $ requestInterrupt 2
                 else modifyBusM $ modifyTima (+ 1)
 
 setTimerCounterM :: Int -> GameBoy ()
 setTimerCounterM val =
-    modify' $ \s -> s{_timerCounter = val}
+    modify' $ \s -> s{timerCounter = val}
 
 updateDivider :: Int -> GameBoy ()
 updateDivider cycles = do
-    counter <- gets (._dividerCounter)
+    counter <- gets (.dividerCounter)
     let counter' = counter + cycles
     setDividerCounter counter'
     when (counter' >= 255) $ do
         setDividerCounter 0
         modifyBusM $ modifyDivider (+ 1)
   where
-    setDividerCounter val = modify' $ \s -> s{_dividerCounter = val}
+    setDividerCounter val = modify' $ \s -> s{dividerCounter = val}
 
 data TimerFrequency
     = Freq4K
@@ -2000,11 +2003,11 @@ timerFrequency = readTimerFrequency . tac
 handleInterrupts :: GameBoy Int
 handleInterrupts = do
     s <- get
-    if s._masterInterruptEnable
+    if s.masterInterruptEnable
         then do
             let
-                enabledInterrupts = s._memoryBus.ie
-                requestedInterrupts = interruptFlags s._memoryBus
+                enabledInterrupts = s.memoryBus.ie
+                requestedInterrupts = interruptFlags s.memoryBus
             case findInterrupt (filter (Bits.testBit requestedInterrupts) [0 .. 4]) enabledInterrupts of
                 Nothing -> pure 0
                 Just interrupt -> do
@@ -2025,7 +2028,7 @@ handleInterrupts = do
         -- traceM $ "      INTERRUPT " <> show interrupt
         disableInterruptsM
         modifyBusM $ disableInterrupt interrupt
-        counter <- gets (._registers.pc)
+        counter <- gets (.registers.pc)
         push counter
         case interrupt of
             0 -> modifyProgramCounterM (const 0x40) -- VBlank
@@ -2038,7 +2041,7 @@ handleInterrupts = do
 dmaTransfer :: U8 -> GameBoy ()
 dmaTransfer n = do
     let startAddr :: U16 = Bits.shiftL (fromIntegral n) 8 -- times 0x100
-    bus <- gets (._memoryBus)
+    bus <- gets (.memoryBus)
     -- TODO: use a slice pointing to cartridge memory instead?
     forM_ [0 .. 0xa0 - 1] $ \i ->
         -- TODO: improve

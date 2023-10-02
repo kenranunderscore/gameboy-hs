@@ -170,7 +170,7 @@ determineNextLcdStatus counter line status =
 
 drawScanline :: GameBoy ()
 drawScanline = do
-    bus <- gets (._memoryBus)
+    bus <- gets (.memoryBus)
     let scanlineColors = readScanlineColors bus
     modifyScreenM (Vector.// [(scanlineColors.index, scanlineColors.colors)])
 
@@ -184,7 +184,7 @@ readFlipMode spriteAttrs =
 
 drawSprites :: GameBoy ()
 drawSprites = do
-    bus <- gets (._memoryBus)
+    bus <- gets (.memoryBus)
     forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
         let
             spriteIndex = sprite * 4 -- 4 bytes per sprite
@@ -221,22 +221,22 @@ drawSprites = do
 setLcdStatus :: GameBoy ()
 setLcdStatus = do
     s <- get
-    let status = lcdStatus s._memoryBus
-    if lcdEnable s._memoryBus -- TODO: check status instead
+    let status = lcdStatus s.memoryBus
+    if lcdEnable s.memoryBus -- TODO: check status instead
         then do
             let
-                line = scanline s._memoryBus
+                line = scanline s.memoryBus
                 oldMode = status .&. 0b11
                 (newMode, needStatInterrupt, newStatus) =
-                    determineNextLcdStatus s._scanlineCounter line status
+                    determineNextLcdStatus s.scanlineCounter line status
             when (newMode /= oldMode && newMode == 3) $ do
                 -- FIXME/TODO: check BG priority here!
                 drawScanline
-                when (objEnabled s._memoryBus) drawSprites
+                when (objEnabled s.memoryBus) drawSprites
             when (needStatInterrupt && newMode /= oldMode) $
                 modifyBusM $
                     requestInterrupt 1
-            compareValue <- gets (lyc . (._memoryBus))
+            compareValue <- gets (lyc . (.memoryBus))
             -- coincidence check
             if line == compareValue
                 then do
@@ -249,9 +249,9 @@ setLcdStatus = do
         else do
             modify' $ \s' ->
                 s'
-                    { _screen = emptyScreen
-                    , _preparedScreen = emptyScreen
-                    , _scanlineCounter = 456
+                    { screen = emptyScreen
+                    , preparedScreen = emptyScreen
+                    , scanlineCounter = 456
                     }
             modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io 0} -- TODO: DIV
             -- TODO refactor mode reading/setting
@@ -263,17 +263,17 @@ updateGraphics :: Int -> GameBoy ()
 updateGraphics cycles = do
     setLcdStatus
     s <- get
-    when (lcdEnable s._memoryBus) $ do
-        let counter = s._scanlineCounter - cycles
+    when (lcdEnable s.memoryBus) $ do
+        let counter = s.scanlineCounter - cycles
         if counter > 0
-            then modify' $ \s' -> s'{_scanlineCounter = counter}
+            then modify' $ \s' -> s'{scanlineCounter = counter}
             else do
-                modify' $ \s' -> s'{_scanlineCounter = s'._scanlineCounter + 456}
+                modify' $ \s' -> s'{scanlineCounter = s'.scanlineCounter + 456}
                 modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io (readByte bus 0xff44 + 1)} -- TODO: DIV
-                line <- gets (scanline . (._memoryBus))
+                line <- gets (scanline . (.memoryBus))
                 if
                     | line == 144 -> do
-                        modify' $ \s' -> s'{_screen = emptyScreen, _preparedScreen = s'._screen}
+                        modify' $ \s' -> s'{screen = emptyScreen, preparedScreen = s'.screen}
                         modifyBusM $ requestInterrupt 0
                     | line > 153 -> do
                         modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io 0}
