@@ -1,5 +1,5 @@
-{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE NoFieldSelectors #-}
@@ -8,11 +8,10 @@
 
 module GameBoy.State where
 
-import Data.Bits ((.&.))
 import Control.Monad.State.Strict
+import Data.Bits ((.&.))
 import Data.Vector (Vector)
 import Data.Vector qualified as Vector
-import Optics
 
 import GameBoy.BitStuff
 import GameBoy.Memory
@@ -33,10 +32,10 @@ data Registers = Registers
     }
     deriving stock (Eq)
 
-bc ::  Registers -> U16
+bc :: Registers -> U16
 bc rs = combineBytes rs.b rs.c
 
-setBC :: U16 -> Registers  -> Registers
+setBC :: U16 -> Registers -> Registers
 setBC n rs =
     let (hi, lo) = splitIntoBytes n
     in rs{b = hi, c = lo}
@@ -44,7 +43,7 @@ setBC n rs =
 de :: Registers -> U16
 de rs = combineBytes rs.d rs.e
 
-setDE :: U16 -> Registers  -> Registers
+setDE :: U16 -> Registers -> Registers
 setDE n rs =
     let (hi, lo) = splitIntoBytes n
     in rs{d = hi, e = lo}
@@ -52,7 +51,7 @@ setDE n rs =
 hl :: Registers -> U16
 hl rs = combineBytes rs.h rs.l
 
-setHL :: U16 -> Registers  -> Registers
+setHL :: U16 -> Registers -> Registers
 setHL n rs =
     let (hi, lo) = splitIntoBytes n
     in rs{h = hi, l = lo}
@@ -60,7 +59,7 @@ setHL n rs =
 af :: Registers -> U16
 af rs = combineBytes rs.a rs.f
 
-setAF :: U16 -> Registers  -> Registers
+setAF :: U16 -> Registers -> Registers
 setAF n rs =
     let (hi, lo) = splitIntoBytes (0xfff0 .&. n)
     in rs{a = hi, f = lo}
@@ -96,8 +95,6 @@ data CPUState = CPUState
     , _halted :: Bool
     }
     deriving stock (Show)
-
-makeLenses ''CPUState
 
 mkInitialState :: MemoryBus -> CPUState
 mkInitialState bus =

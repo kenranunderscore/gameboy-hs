@@ -30,7 +30,6 @@ library
     , bytestring
     , containers
     , mtl
-    , optics
     , sdl2
     , stm
     , time
