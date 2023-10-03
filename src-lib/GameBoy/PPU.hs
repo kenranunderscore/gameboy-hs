@@ -99,7 +99,9 @@ readPixel bus addr row col =
 
 data ScanlineColors = ScanlineColors
     { index :: Int
-    , colors :: Vector U8
+    , -- TODO: find out why using [] here instead of Vector yields 60% fps
+      -- _gain_!!
+      colors :: [U8]
     }
 
 translateColor :: U8 -> Color -> U8
@@ -124,8 +126,6 @@ readScanlineColors bus =
         vertTileIndexOffset = (toU16 ypos .>>. 3) .<<. 5
         currentPalette = bgPalette bus
     in
-        -- TODO: performance bottleneck: somewhere here, probably allocations
-        -- due to building 'ScanlineColors'
         ScanlineColors (fromIntegral currentLine) $
             fmap
                 ( \i ->
@@ -180,7 +180,7 @@ drawScanline :: GameBoy ()
 drawScanline = do
     bus <- gets (.memoryBus)
     let scanlineColors = readScanlineColors bus
-    modifyScreenM (Vector.// [(scanlineColors.index, scanlineColors.colors)])
+    modifyScreenM (Vector.// [(scanlineColors.index, Vector.fromList scanlineColors.colors)])
 
 readFlipMode :: U8 -> FlipMode
 readFlipMode spriteAttrs =
