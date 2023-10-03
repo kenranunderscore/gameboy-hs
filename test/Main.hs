@@ -29,10 +29,10 @@ tests =
         , testCase "splitIntoBytes with low byte only" $ splitIntoBytes 0x001f @?= (0, 0x1f)
         , testCase "splitIntoBytes with high byte only" $ splitIntoBytes 0xe200 @?= (0xe2, 0)
         , testCase "splitIntoBytes" $ splitIntoBytes 0xe207 @?= (0xe2, 0x07)
-        , testCase "translateTileColors 0" $ translateTileColors 0b01001110 Color0 @?= 2
-        , testCase "translateTileColors 1" $ translateTileColors 0b01001110 Color1 @?= 3
-        , testCase "translateTileColors 2" $ translateTileColors 0b01001110 Color2 @?= 0
-        , testCase "translateTileColors 3" $ translateTileColors 0b01001110 Color3 @?= 1
+        , testCase "translateTileColors 0" $ translateColor 0b01001110 Color0 @?= 2
+        , testCase "translateTileColors 1" $ translateColor 0b01001110 Color1 @?= 3
+        , testCase "translateTileColors 2" $ translateColor 0b01001110 Color2 @?= 0
+        , testCase "translateTileColors 3" $ translateColor 0b01001110 Color3 @?= 1
         ]
 
 emptyRegisters :: Registers

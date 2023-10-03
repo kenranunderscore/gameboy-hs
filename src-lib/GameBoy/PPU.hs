@@ -40,17 +40,17 @@ addressingMode bus =
 data Color = Color0 | Color1 | Color2 | Color3
     deriving (Eq, Show, Enum)
 
+determinePixelColor :: U8 -> U8 -> Int -> Color
+determinePixelColor b1 b2 i =
+    case (Bits.testBit b2 i, Bits.testBit b1 i) of
+        (False, False) -> Color0
+        (False, True) -> Color1
+        (True, False) -> Color2
+        (True, True) -> Color3
+
 determinePixelColors :: FlipMode -> U8 -> U8 -> Vector Color
 determinePixelColors flipMode b1 b2 =
-    fmap
-        ( \i ->
-            case (Bits.testBit b2 i, Bits.testBit b1 i) of
-                (False, False) -> Color0
-                (False, True) -> Color1
-                (True, False) -> Color2
-                (True, True) -> Color3
-        )
-        (Vector.fromList is)
+    fmap (determinePixelColor b1 b2) (Vector.fromList is)
   where
     is =
         ( case flipMode of
@@ -90,13 +90,20 @@ readTileRow bus flipMode addr row =
             FlipBoth -> 7 - row
             _ -> row
 
+readPixel :: MemoryBus -> U16 -> U8 -> U8 -> Color
+readPixel bus addr row col =
+    determinePixelColor
+        (readByte bus (addr + 2 * fromIntegral row))
+        (readByte bus (addr + 2 * fromIntegral row + 1))
+        (fromIntegral $ 7 - col)
+
 data ScanlineColors = ScanlineColors
     { index :: Int
     , colors :: Vector U8
     }
 
-translateTileColors :: U8 -> Color -> U8
-translateTileColors palette = \case
+translateColor :: U8 -> Color -> U8
+translateColor palette = \case
     Color0 -> palette .&. 0b11
     Color1 -> (palette .>>. 2) .&. 0b11
     Color2 -> (palette .>>. 4) .&. 0b11
@@ -117,7 +124,8 @@ readScanlineColors bus =
         vertTileIndexOffset = (toU16 ypos .>>. 3) .<<. 5
         currentPalette = bgPalette bus
     in
-        -- TODO: "preload" only the necessary tiles, _then_ loop
+        -- TODO: performance bottleneck: somewhere here, probably allocations
+        -- due to building 'ScanlineColors'
         ScanlineColors (fromIntegral currentLine) $
             fmap
                 ( \i ->
@@ -128,10 +136,10 @@ readScanlineColors bus =
                         tileIdentifier = readByte bus tileIdentifierAddr
                         tileAddr = determineTileAddress tileIdentifier mode
                         rowIndex = ypos `mod` 8
-                        tileColors = readTileRow bus NoFlip tileAddr (fromIntegral rowIndex)
+                        colIndex = xpos `mod` 8
+                        pixel = readPixel bus tileAddr rowIndex colIndex
                     in
-                        translateTileColors currentPalette $!
-                            tileColors Vector.! fromIntegral (xpos `mod` 8)
+                        translateColor currentPalette pixel
                 )
                 [0 .. 159]
   where
@@ -201,7 +209,7 @@ drawSprites = do
             let
                 tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
                 tileRow = readTileRow bus flipMode tileMemStart (fromIntegral line)
-                dummyPalette = readByte bus $ if Bits.testBit attrs 4 then 0xff49 else 0xff48
+                palette = readByte bus $ if Bits.testBit attrs 4 then 0xff49 else 0xff48
             modifyScreenM $ \scr ->
                 let
                     v = scr Vector.! fromIntegral currentLine
@@ -210,7 +218,7 @@ drawSprites = do
                             Vector.// ( fmap
                                             ( \i ->
                                                 ( fromIntegral x + i
-                                                , fmap (translateTileColors dummyPalette) tileRow Vector.! i
+                                                , fmap (translateColor palette) tileRow Vector.! i
                                                 )
                                             )
                                             [0 .. 7]
