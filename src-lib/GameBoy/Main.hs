@@ -37,7 +37,7 @@ mainLoop scrRef buttonsRef = do
         oneFrame 0
         scr <- gets (.preparedScreen)
         liftIO $ writeIORef scrRef scr
-        if (frames == 59)
+        if (frames == 300)
             then do
                 now <- liftIO Time.getCurrentTime
                 let
