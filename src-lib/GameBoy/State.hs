@@ -114,6 +114,9 @@ mkInitialState bus =
             , sp = 0xfffe
             }
 
+busM :: GameBoy MemoryBus
+busM = gets (.memoryBus)
+
 modifyBusM :: (MemoryBus -> MemoryBus) -> GameBoy ()
 modifyBusM fn = modify' $ \s -> s{memoryBus = fn s.memoryBus}
 

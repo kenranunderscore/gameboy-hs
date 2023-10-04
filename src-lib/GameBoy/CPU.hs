@@ -1017,9 +1017,9 @@ writeMemory addr n =
         -- HACK: "listen" for changes that potentially cascade to other state
         -- changes here
         0xff07 -> do
-            freq <- gets (timerFrequency . (.memoryBus))
+            freq <- timerFrequency <$> busM
             modifyBusM (writeByte addr n)
-            freq' <- gets (timerFrequency . (.memoryBus))
+            freq' <- timerFrequency <$> busM
             when (freq' /= freq) $
                 setTimerCounterM (counterFromFrequency freq')
         _ -> modifyBusM (writeByte addr n)
@@ -1952,7 +1952,7 @@ updateTimers cycles = do
         let counter' = s.timerCounter - cycles
         setTimerCounterM counter'
         when (counter' <= 0) $ do
-            freq <- gets (timerFrequency . (.memoryBus))
+            freq <- timerFrequency <$> busM
             setTimerCounterM (counterFromFrequency freq)
             if tima s.memoryBus == maxBound
                 then do
@@ -2041,7 +2041,7 @@ handleInterrupts = do
 dmaTransfer :: U8 -> GameBoy ()
 dmaTransfer n = do
     let startAddr :: U16 = Bits.shiftL (fromIntegral n) 8 -- times 0x100
-    bus <- gets (.memoryBus)
+    bus <- busM
     -- TODO: use a slice pointing to cartridge memory instead?
     forM_ [0 .. 0xa0 - 1] $ \i ->
         -- TODO: improve

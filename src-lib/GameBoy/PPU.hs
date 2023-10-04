@@ -178,7 +178,7 @@ determineNextLcdStatus counter line status =
 
 drawScanline :: GameBoy ()
 drawScanline = do
-    bus <- gets (.memoryBus)
+    bus <- busM
     let scanlineColors = readScanlineColors bus
     modifyScreenM (Vector.// [(scanlineColors.index, Vector.fromList scanlineColors.colors)])
 
@@ -192,7 +192,7 @@ readFlipMode spriteAttrs =
 
 drawSprites :: GameBoy ()
 drawSprites = do
-    bus <- gets (.memoryBus)
+    bus <- busM
     forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
         let
             spriteIndex = sprite * 4 -- 4 bytes per sprite
@@ -244,7 +244,7 @@ setLcdStatus = do
             when (needStatInterrupt && newMode /= oldMode) $
                 modifyBusM $
                     requestInterrupt 1
-            compareValue <- gets (lyc . (.memoryBus))
+            compareValue <- lyc <$> busM
             -- coincidence check
             if line == compareValue
                 then do
@@ -278,7 +278,7 @@ updateGraphics cycles = do
             else do
                 modify' $ \s' -> s'{scanlineCounter = s'.scanlineCounter + 456}
                 modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io (readByte bus 0xff44 + 1)} -- TODO: DIV
-                line <- gets (scanline . (.memoryBus))
+                line <- scanline <$> busM
                 if
                     | line == 144 -> do
                         modify' $ \s' -> s'{screen = emptyScreen, preparedScreen = s'.screen}
