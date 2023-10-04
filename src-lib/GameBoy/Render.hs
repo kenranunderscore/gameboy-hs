@@ -24,10 +24,10 @@ tileSize = 6
 renderScreen :: MonadIO m => SDL.Renderer -> InMemoryScreen -> m ()
 renderScreen renderer scr = do
     SDL.clear renderer
-    traverse_
-        ( \(y, line) ->
-            traverse_
-                ( \(x, color) -> do
+    Vector.imapM_
+        ( \y line ->
+            Vector.imapM_
+                ( \x color -> do
                     -- NOTE: this is VERY slow
                     let rect =
                             SDL.Rectangle
@@ -36,9 +36,9 @@ renderScreen renderer scr = do
                     SDL.rendererDrawColor renderer $= getColor color
                     SDL.fillRect renderer (Just rect)
                 )
-                (Vector.indexed line)
+                line
         )
-        (Vector.indexed scr)
+        scr
     SDL.present renderer
   where
     getColor = \case
