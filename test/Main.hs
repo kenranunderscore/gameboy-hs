@@ -29,10 +29,10 @@ tests =
         , testCase "splitIntoBytes with low byte only" $ splitIntoBytes 0x001f @?= (0, 0x1f)
         , testCase "splitIntoBytes with high byte only" $ splitIntoBytes 0xe200 @?= (0xe2, 0)
         , testCase "splitIntoBytes" $ splitIntoBytes 0xe207 @?= (0xe2, 0x07)
-        , testCase "translateTileColors 0" $ translateColor 0b01001110 Color0 @?= 2
-        , testCase "translateTileColors 1" $ translateColor 0b01001110 Color1 @?= 3
-        , testCase "translateTileColors 2" $ translateColor 0b01001110 Color2 @?= 0
-        , testCase "translateTileColors 3" $ translateColor 0b01001110 Color3 @?= 1
+        , testCase "translateTileColors 0" $ translateColor 0b01001110 (Color 0) @?= 2
+        , testCase "translateTileColors 1" $ translateColor 0b01001110 (Color 1) @?= 3
+        , testCase "translateTileColors 2" $ translateColor 0b01001110 (Color 2) @?= 0
+        , testCase "translateTileColors 3" $ translateColor 0b01001110 (Color 3) @?= 1
         ]
 
 emptyRegisters :: Registers
@@ -95,7 +95,7 @@ determinePixelColorsTests =
             let
                 byte1 = 0b10101110
                 byte2 = 0b00110101
-                expected = [Color1, Color0, Color3, Color2, Color1, Color3, Color1, Color2]
+                expected = [Color 1, Color 0, Color 3, Color 2, Color 1, Color 3, Color 1, Color 2]
             determinePixelColors NoFlip byte1 byte2 @?= expected
         ]
 

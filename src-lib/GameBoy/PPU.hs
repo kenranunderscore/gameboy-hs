@@ -37,16 +37,14 @@ addressingMode :: MemoryBus -> AddressingMode
 addressingMode bus =
     if Bits.testBit (lcdc bus) 4 then Mode8000 else Mode8800
 
-data Color = Color0 | Color1 | Color2 | Color3
-    deriving (Eq, Show, Enum)
+newtype Color = Color {unColor :: U8}
+    deriving (Eq, Show)
 
 determinePixelColor :: U8 -> U8 -> Int -> Color
 determinePixelColor b1 b2 i =
-    case (Bits.testBit b2 i, Bits.testBit b1 i) of
-        (False, False) -> Color0
-        (False, True) -> Color1
-        (True, False) -> Color2
-        (True, True) -> Color3
+    Color $
+        ((b2 .&. Bits.bit i) .>>. i) .<<. 1
+            + (b1 .&. Bits.bit i) .>>. i
 
 determinePixelColors :: FlipMode -> U8 -> U8 -> [Color]
 determinePixelColors flipMode b1 b2 =
@@ -106,10 +104,11 @@ data ScanlineColors = ScanlineColors
 
 translateColor :: U8 -> Color -> U8
 translateColor palette = \case
-    Color0 -> palette .&. 0b11
-    Color1 -> (palette .>>. 2) .&. 0b11
-    Color2 -> (palette .>>. 4) .&. 0b11
-    Color3 -> (palette .>>. 6) .&. 0b11
+    Color 0 -> palette .&. 0b11
+    Color 1 -> (palette .>>. 2) .&. 0b11
+    Color 2 -> (palette .>>. 4) .&. 0b11
+    Color 3 -> (palette .>>. 6) .&. 0b11
+    _ -> error "impossible color"
 
 readScanlineColors :: MemoryBus -> ScanlineColors
 readScanlineColors bus =
