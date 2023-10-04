@@ -48,9 +48,9 @@ determinePixelColor b1 b2 i =
         (True, False) -> Color2
         (True, True) -> Color3
 
-determinePixelColors :: FlipMode -> U8 -> U8 -> Vector Color
+determinePixelColors :: FlipMode -> U8 -> U8 -> [Color]
 determinePixelColors flipMode b1 b2 =
-    fmap (determinePixelColor b1 b2) (Vector.fromList is)
+    fmap (determinePixelColor b1 b2) is
   where
     is =
         ( case flipMode of
@@ -77,7 +77,7 @@ type Tile = Vector (Vector Color)
 data FlipMode = FlipX | FlipY | FlipBoth | NoFlip
     deriving (Show)
 
-readTileRow :: MemoryBus -> FlipMode -> U16 -> Int -> Vector Color
+readTileRow :: MemoryBus -> FlipMode -> U16 -> Int -> [Color]
 readTileRow bus flipMode addr row =
     determinePixelColors
         flipMode
@@ -193,11 +193,14 @@ readFlipMode spriteAttrs =
 drawSprites :: GameBoy ()
 drawSprites = do
     bus <- busM
+    -- FIXME: implement object priority here:
+    --  1) smaller x coordinate == higher priority
+    --  2) equal x => first in OAM wins
     forM_ ([0 .. 39] :: [U16]) $ \sprite -> do
         let
             spriteIndex = sprite * 4 -- 4 bytes per sprite
             y = oamRead spriteIndex bus - 16
-            x = oamRead (spriteIndex + 1) bus - 8
+            x = fromIntegral $ oamRead (spriteIndex + 1) bus - 8
             tileOffset = oamRead (spriteIndex + 2) bus
             attrs = oamRead (spriteIndex + 3) bus
             flipMode = readFlipMode attrs
@@ -205,7 +208,6 @@ drawSprites = do
             height = if spriteUsesTwoTiles bus then 16 else 8
             line = currentLine - y
         when (line >= 0 && line < height) $ do
-            -- FIXME: transparency!
             let
                 tileMemStart = 0x8000 + 16 * fromIntegral tileOffset
                 tileRow = readTileRow bus flipMode tileMemStart (fromIntegral line)
@@ -215,13 +217,11 @@ drawSprites = do
                     v = scr Vector.! fromIntegral currentLine
                     v' =
                         v
-                            Vector.// ( fmap
-                                            ( \i ->
-                                                ( fromIntegral x + i
-                                                , fmap (translateColor palette) tileRow Vector.! i
-                                                )
-                                            )
-                                            [0 .. 7]
+                            Vector.// ( filter (\(x', color) -> color /= 0 && x' < 160) $
+                                            zipWith
+                                                (\color i -> (x + i, translateColor palette color))
+                                                tileRow
+                                                [0 ..]
                                       )
                 in
                     scr Vector.// [(fromIntegral currentLine, v')]
