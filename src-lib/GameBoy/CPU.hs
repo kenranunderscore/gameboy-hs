@@ -46,18 +46,22 @@ hasFlag fl rs = Bits.testBit rs.f (flagBit fl)
 hasFlag' :: Flag -> CPUState -> Bool
 hasFlag' fl s = hasFlag fl s.registers
 
+programCounterM :: GameBoy U16
+programCounterM = gets (.registers.pc)
+
 modifyProgramCounter :: (U16 -> U16) -> Registers -> Registers
 modifyProgramCounter f rs = rs{pc = f rs.pc}
 
--- TODO: add set* version
 modifyProgramCounterM :: (U16 -> U16) -> GameBoy ()
 modifyProgramCounterM f = modify' $ \s ->
     s{registers = modifyProgramCounter f s.registers}
 
+jumpM :: U16 -> GameBoy ()
+jumpM = modifyProgramCounterM . const
+
 modifyStackPointer :: (U16 -> U16) -> Registers -> Registers
 modifyStackPointer f rs = rs{sp = f rs.sp}
 
--- TODO: add set* version
 modifyStackPointerM :: (U16 -> U16) -> GameBoy ()
 modifyStackPointerM f = modify' $ \s ->
     s{registers = modifyStackPointer f s.registers}
@@ -117,7 +121,7 @@ readRegister16 rr rs =
 
 readRegister16M :: TargetRegister16 -> GameBoy U16
 readRegister16M rr = do
-    rs <- gets (.registers)
+    rs <- registersM
     pure $ readRegister16 rr rs
 
 -- TODO: try out using set* as primitive operation
@@ -1082,7 +1086,7 @@ execute Instruction{tag, baseCycles} =
         LD_u16 rr n ->
             exec $ setRegister16M rr n
         LD_deref_rr_A rr -> exec $ do
-            rs <- gets (.registers)
+            rs <- registersM
             writeMemory (readRegister16 rr rs) rs.a
         LDSP_u16 n ->
             exec $ modifyStackPointerM (const n)
@@ -1095,15 +1099,15 @@ execute Instruction{tag, baseCycles} =
             n <- deref HL
             setRegisterM r n
         LD_HLminus_A -> exec $ do
-            rs <- gets (.registers)
+            rs <- registersM
             writeMemory (hl rs) rs.a
             modifyRegister16M HL (\x -> x - 1)
         LD_HLplus_A -> exec $ do
-            rs <- gets (.registers)
+            rs <- registersM
             writeMemory (hl rs) rs.a
             modifyRegister16M HL (+ 1)
         LD_HLderef_u8 n -> exec $ do
-            rs <- gets (.registers)
+            rs <- registersM
             writeMemory (hl rs) n
         LD_A_deref rr -> exec $ do
             n <- deref rr
@@ -1129,7 +1133,7 @@ execute Instruction{tag, baseCycles} =
         LD r r' ->
             exec $ ld_r_r r r'
         LD_u16_A n -> exec $ do
-            rs <- gets (.registers)
+            rs <- registersM
             writeMemory n rs.a
         LD_FF00plusC_A -> exec $ do
             s <- get
@@ -1139,7 +1143,7 @@ execute Instruction{tag, baseCycles} =
             s <- get
             writeMemory (0xff00 + fromIntegral n) s.registers.a
         LD_derefHL r -> exec $ do
-            rs <- gets (.registers)
+            rs <- registersM
             writeMemory (hl rs) (readRegister r rs)
         LDSP_HL -> exec $ do
             modifyRegistersM $ \rs ->
@@ -1187,39 +1191,39 @@ execute Instruction{tag, baseCycles} =
             jump <- gets (checkFlagCondition cond)
             if jump
                 then do
-                    modifyProgramCounterM (const n)
+                    jumpM n
                     pure $ baseCycles + 4
                 else pure $ baseCycles
         RET -> exec $ do
             addr <- pop
-            modifyProgramCounterM (const addr)
+            jumpM addr
         RET_cc cond -> do
             jump <- gets (checkFlagCondition cond)
             if jump
                 then do
                     addr <- pop
-                    modifyProgramCounterM (const addr)
+                    jumpM addr
                     pure 20
                 else pure baseCycles
         RETI -> exec $ do
             addr <- pop
-            modifyProgramCounterM (const addr)
+            jumpM addr
             enableInterruptsM
         CALL n -> exec $ do
-            counter <- gets (.registers.pc)
+            counter <- programCounterM
             push counter
-            modifyProgramCounterM (const n)
+            jumpM n
         CALL_cc cond n -> do
             s <- get
             if (checkFlagCondition cond s)
                 then do
                     let counter = s.registers.pc
                     push counter
-                    modifyProgramCounterM (const n)
+                    jumpM n
                     pure 24
                 else pure baseCycles
         JP n ->
-            exec $ modifyProgramCounterM (const n)
+            exec $ jumpM n
         JP_HL -> exec $ do
             modifyRegistersM $ \rs ->
                 modifyProgramCounter (const $ hl rs) rs
@@ -1261,7 +1265,7 @@ execute Instruction{tag, baseCycles} =
             n <- readRegister16M rr
             push n
         PUSH_AF -> exec $ do
-            rs <- gets (.registers)
+            rs <- registersM
             push (af rs)
         POP rr -> exec $ do
             n <- pop
@@ -1354,9 +1358,9 @@ execute Instruction{tag, baseCycles} =
         XOR_A_HL ->
             exec $ xor_a_u8 =<< deref HL
         RST addr -> exec $ do
-            counter <- gets (.registers.pc)
+            counter <- programCounterM
             push counter
-            modifyProgramCounterM (const $ getRestartAddr addr)
+            jumpM (getRestartAddr addr)
         CPL -> exec $ do
             modifyRegistersM $ \rs ->
                 rs
@@ -2028,14 +2032,14 @@ handleInterrupts = do
         -- traceM $ "      INTERRUPT " <> show interrupt
         disableInterruptsM
         modifyBusM $ disableInterrupt interrupt
-        counter <- gets (.registers.pc)
+        counter <- programCounterM
         push counter
         case interrupt of
-            0 -> modifyProgramCounterM (const 0x40) -- VBlank
-            1 -> modifyProgramCounterM (const 0x48) -- LCD stat
-            2 -> modifyProgramCounterM (const 0x50) -- Timer
-            3 -> modifyProgramCounterM (const 0x58) -- Serial
-            4 -> modifyProgramCounterM (const 0x60) -- Joypad
+            0 -> jumpM 0x40 -- VBlank
+            1 -> jumpM 0x48 -- LCD stat
+            2 -> jumpM 0x50 -- Timer
+            3 -> jumpM 0x58 -- Serial
+            4 -> jumpM 0x60 -- Joypad
             s -> error $ "unhandled interrupt: " <> show s
 
 dmaTransfer :: U8 -> GameBoy ()
