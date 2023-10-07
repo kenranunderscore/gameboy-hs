@@ -733,7 +733,7 @@ fetch = do
                 0xfb -> pure EI
                 0xfe -> CP_u8 <$> fetchByteM
                 0xff -> pure $ RST Rst38
-                unknown -> error $ "unknown opcode: " <> toHex unknown
+                unknown -> error $ "found invalid opcode " <> toHex unknown
             pure $ Instruction cycles instr
 
 fetchPrefixed :: GameBoy Instruction
@@ -1003,7 +1003,7 @@ fetchPrefixed = do
         0xfd -> SET 7 L
         0xfe -> SET_derefHL 7
         0xff -> SET 7 A
-        unknown -> error $ "unknown prefixed byte: " <> toHex unknown
+        unknown -> error $ "impossible prefixed byte: " <> toHex unknown
 
 writeByteM :: U16 -> U8 -> GameBoy ()
 writeByteM addr n =
