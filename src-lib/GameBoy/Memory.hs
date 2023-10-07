@@ -10,8 +10,8 @@ module GameBoy.Memory where
 import Data.Bits qualified as Bits
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
-import Data.Vector.Unboxed (Vector)
-import Data.Vector.Unboxed qualified as Vector
+import Data.Vector.Unboxed (Vector, (!), (//))
+import Data.Vector.Unboxed qualified as Unboxed
 
 import GameBoy.BitStuff
 import GameBoy.Gamepad
@@ -20,7 +20,9 @@ type Memory = Vector U8
 
 data MemoryBus = MemoryBus
     { cartridge :: Memory
-    -- ^ Cartridge RAM: $0000 - $7fff
+    -- ^ Cartridge ROM: $0000 - $3fff
+    , romBank :: Memory
+    -- ^ Interchangeable ROM bank: $4000 - $7fff
     , vram :: Memory
     -- ^ VRAM: $8000 - $9fff
     , sram :: Memory
@@ -42,30 +44,31 @@ data MemoryBus = MemoryBus
 
 -- | Set the n-th byte of a memory array to a fixed value.
 setByteAt :: U16 -> Memory -> U8 -> Memory
-setByteAt addr mem val = mem Vector.// [(fromIntegral addr, val)]
+setByteAt addr mem val = mem // [(fromIntegral addr, val)]
 
 readByte :: MemoryBus -> U16 -> U8
 readByte bus addr
-    | addr < 0x8000 = bus.cartridge Vector.! fromIntegral addr
-    | addr < 0xa000 = bus.vram Vector.! fromIntegral (addr - 0x8000)
-    | addr < 0xc000 = bus.sram Vector.! fromIntegral (addr - 0xa000)
-    | addr < 0xe000 = bus.wram Vector.! fromIntegral (addr - 0xc000)
-    | addr < 0xfe00 = bus.wram Vector.! fromIntegral (addr - 0xc000) -- echoes WRAM
+    | addr < 0x4000 = bus.cartridge ! fromIntegral addr
+    | addr < 0x8000 = bus.romBank ! fromIntegral (addr - 0x4000)
+    | addr < 0xa000 = bus.vram ! fromIntegral (addr - 0x8000)
+    | addr < 0xc000 = bus.sram ! fromIntegral (addr - 0xa000)
+    | addr < 0xe000 = bus.wram ! fromIntegral (addr - 0xc000)
+    | addr < 0xfe00 = bus.wram ! fromIntegral (addr - 0xc000) -- echoes WRAM
     | addr < 0xfea0 = oamRead (addr - 0xfe00) bus
     | addr < 0xff00 = 0 -- forbidden area
     | addr == 0xff00 = readGamepad bus
-    | addr < 0xff80 = bus.io Vector.! fromIntegral (addr - 0xff00)
-    | addr < 0xffff = bus.hram Vector.! fromIntegral (addr - 0xff80)
+    | addr < 0xff80 = bus.io ! fromIntegral (addr - 0xff00)
+    | addr < 0xffff = bus.hram ! fromIntegral (addr - 0xff80)
     | addr == 0xffff = bus.ie
     | otherwise = error "the impossible happened"
 
 oamRead :: U16 -> MemoryBus -> U8
-oamRead relAddr bus = bus.oam Vector.! fromIntegral relAddr
+oamRead relAddr bus = bus.oam ! fromIntegral relAddr
 
 readGamepad :: MemoryBus -> U8
 readGamepad bus = toJoyp buttons val
   where
-    val = bus.io Vector.! 0
+    val = bus.io ! 0
     buttons = bus.gamepadState
 
 writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
@@ -271,39 +274,39 @@ readCartridgeHeader mem =
     Just $
         CartridgeHeader
             theTitle
-            (mem Vector.! 0x143)
-            (mem Vector.! 0x146)
-            (readCartridgeType $ mem Vector.! 0x147)
+            (mem ! 0x143)
+            (mem ! 0x146)
+            (readCartridgeType $ mem ! 0x147)
   where
     theTitle =
-        Vector.toList $
-            Vector.map (Char.chr . fromIntegral) $
-                Vector.slice 0x134 (0x142 - 0x134 + 1) mem
+        Unboxed.toList $
+            Unboxed.map (Char.chr . fromIntegral) $
+                Unboxed.slice 0x134 (0x142 - 0x134 + 1) mem
 
 loadCartridgeFromFile :: FilePath -> IO Cartridge
 loadCartridgeFromFile path = do
     bytes <- BS.readFile path
-    let mem = Vector.fromList $ BS.unpack bytes
+    let mem = Unboxed.fromList $ BS.unpack bytes
     pure $ Cartridge mem (readCartridgeHeader mem)
 
-defaultMemoryBus :: MemoryBus
-defaultMemoryBus =
-    -- TODO: set correct initial values
+mkMemoryBus :: Memory -> MemoryBus
+mkMemoryBus cart =
     MemoryBus
-        { ie = 0x0 -- TODO check this
-        , hram = mkEmptyMemory 0x80
+        { cartridge = Unboxed.take 0x4000 cart
+        , romBank = Unboxed.slice 0x4000 0x4000 cart
+        , vram = mkEmptyMemory 0x2000
+        , sram = mkEmptyMemory 0x2000
+        , wram = mkEmptyMemory 0x2000
+        , oam = mkEmptyMemory 0x100
         , gamepadState = noButtonsPressed
         , io = ioInitialValues
-        , oam = mkEmptyMemory 0x100
-        , wram = mkEmptyMemory 0x2000
-        , sram = mkEmptyMemory 0x2000
-        , vram = mkEmptyMemory 0x2000
-        , cartridge = mkEmptyMemory 0x8000
+        , hram = mkEmptyMemory 0x80
+        , ie = 0 -- TODO check this
         }
 
 mkEmptyMemory :: U16 -> Memory
 mkEmptyMemory len =
-    Vector.replicate (fromIntegral len) 0
+    Unboxed.replicate (fromIntegral len) 0
 
 initializeMemoryBus :: FilePath -> IO MemoryBus
 initializeMemoryBus path = do
@@ -315,4 +318,4 @@ initializeMemoryBus path = do
             putStrLn $ "Cartridge type:  " <> show h.cartridgeType
             putStrLn $ "CGB:  " <> toHex h.cgb
             putStrLn $ "SGB:  " <> toHex h.sgb
-    pure $ defaultMemoryBus{cartridge = cart.memory}
+    pure $ mkMemoryBus cart.memory
