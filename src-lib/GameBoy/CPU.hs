@@ -1003,34 +1003,29 @@ fetchPrefixed = do
         0xff -> SET 7 A
         unknown -> error $ "unknown prefixed byte: " <> toHex unknown
 
-writeMemory :: U16 -> U8 -> GameBoy ()
-writeMemory addr n =
+writeByteM :: U16 -> U8 -> GameBoy ()
+writeByteM addr n =
     -- HACK: "listen" for changes that potentially cascade to other state
     -- changes here
     case addr of
-        0xff44 -> do
-            -- reset scanline if the CPU writes to it
-            modifyBusM (writeByte addr 0)
         0xff46 ->
-            -- trace ("    [DMA TRANSFER] : " <> toHex n) (dmaTransfer n)
             dmaTransfer n
-        -- HACK: "listen" for changes that potentially cascade to other state
-        -- changes here
         0xff07 -> do
             freq <- timerFrequency <$> busM
             modifyBusM (writeByte addr n)
             freq' <- timerFrequency <$> busM
             when (freq' /= freq) $
                 setTimerCounterM (counterFromFrequency freq')
-        _ -> modifyBusM (writeByte addr n)
+        _ ->
+            modifyBusM (writeByte addr n)
 
 push :: U16 -> GameBoy ()
 push n = do
     s <- get
     let curr = s.registers.sp
     modifyStackPointerM (\x -> x - 2)
-    writeMemory (curr - 1) hi
-    writeMemory (curr - 2) lo
+    writeByteM (curr - 1) hi
+    writeByteM (curr - 2) lo
   where
     (hi, lo) = splitIntoBytes n
 
@@ -1083,28 +1078,28 @@ execute Instruction{tag, baseCycles} =
             exec $ setRegister16M rr n
         LD_deref_rr_A rr -> exec $ do
             rs <- registersM
-            writeMemory (readRegister16 rr rs) rs.a
+            writeByteM (readRegister16 rr rs) rs.a
         LDSP_u16 n ->
             exec $ modifyStackPointerM (const n)
         LD_u16SP n -> exec $ do
             stackPointer <- gets (.registers.sp)
             let (hi, lo) = splitIntoBytes stackPointer
-            writeMemory n lo
-            writeMemory (n + 1) hi
+            writeByteM n lo
+            writeByteM (n + 1) hi
         LD_r_HLderef r -> exec $ do
             n <- deref HL
             setRegisterM r n
         LD_HLminus_A -> exec $ do
             rs <- registersM
-            writeMemory (hl rs) rs.a
+            writeByteM (hl rs) rs.a
             modifyRegister16M HL (\x -> x - 1)
         LD_HLplus_A -> exec $ do
             rs <- registersM
-            writeMemory (hl rs) rs.a
+            writeByteM (hl rs) rs.a
             modifyRegister16M HL (+ 1)
         LD_HLderef_u8 n -> exec $ do
             rs <- registersM
-            writeMemory (hl rs) n
+            writeByteM (hl rs) n
         LD_A_deref rr -> exec $ do
             n <- deref rr
             setRegisterM A n
@@ -1130,17 +1125,17 @@ execute Instruction{tag, baseCycles} =
             exec $ ld_r_r r r'
         LD_u16_A n -> exec $ do
             rs <- registersM
-            writeMemory n rs.a
+            writeByteM n rs.a
         LD_FF00plusC_A -> exec $ do
             s <- get
             let offset = fromIntegral s.registers.c
-            writeMemory (0xff00 + offset) s.registers.a
+            writeByteM (0xff00 + offset) s.registers.a
         LD_FF00plusU8_A n -> exec $ do
             s <- get
-            writeMemory (0xff00 + fromIntegral n) s.registers.a
+            writeByteM (0xff00 + fromIntegral n) s.registers.a
         LD_derefHL r -> exec $ do
             rs <- registersM
-            writeMemory (hl rs) (readRegister r rs)
+            writeByteM (hl rs) (readRegister r rs)
         LDSP_HL -> exec $ do
             modifyRegistersM $ \rs ->
                 modifyStackPointer (const $ hl rs) rs
@@ -1231,7 +1226,7 @@ execute Instruction{tag, baseCycles} =
                 addr = hl s.registers
                 orig = readByte s.memoryBus addr
                 val = orig + 1
-            writeMemory addr val
+            writeByteM addr val
             modifyRegistersM $
                 adjustFlag Zero (val == 0)
                     . clearFlag Negative
@@ -1251,7 +1246,7 @@ execute Instruction{tag, baseCycles} =
             let
                 addr = hl s.registers
                 val = readByte s.memoryBus addr - 1
-            writeMemory addr val
+            writeByteM addr val
             modifyRegistersM
                 ( adjustFlag Zero (val == 0)
                     . setFlag Negative
@@ -1381,7 +1376,7 @@ execute Instruction{tag, baseCycles} =
                 addr = hl rs
                 orig = readByte s.memoryBus addr
                 res = Bits.rotate orig 4
-            writeMemory addr res
+            writeByteM addr res
             modifyRegistersM
                 ( clearFlag Negative
                     . clearFlag HalfCarry
@@ -1397,7 +1392,7 @@ execute Instruction{tag, baseCycles} =
                 addr = hl rs
                 val = readByte s.memoryBus addr
                 res = Bits.clearBit val n
-            writeMemory addr res
+            writeByteM addr res
         SET n r ->
             exec $ modifyRegisterM r (`Bits.setBit` n)
         SET_derefHL n -> exec $ do
@@ -1407,7 +1402,7 @@ execute Instruction{tag, baseCycles} =
                 addr = hl rs
                 val = readByte s.memoryBus addr
                 res = Bits.setBit val n
-            writeMemory addr res
+            writeByteM addr res
         SRL r -> exec $ modifyRegistersM $ \rs ->
             let
                 orig = readRegister r rs
@@ -1425,7 +1420,7 @@ execute Instruction{tag, baseCycles} =
                 addr = hl s.registers
                 orig = readByte s.memoryBus addr
                 res = orig .>>. 1
-            writeMemory addr res
+            writeByteM addr res
             modifyRegistersM $
                 clearFlag Negative
                     . clearFlag HalfCarry
@@ -1453,7 +1448,7 @@ execute Instruction{tag, baseCycles} =
                 orig = readByte s.memoryBus addr
                 carry' = Bits.testBit orig 0
                 res = Bits.shiftR orig 1 + Bits.shiftL carry 7
-            writeMemory addr res
+            writeByteM addr res
             modifyRegistersM $
                 adjustFlag Carry carry'
                     . adjustFlag Zero (res == 0)
@@ -1479,7 +1474,7 @@ execute Instruction{tag, baseCycles} =
                 orig = readByte s.memoryBus addr
                 carry = Bits.testBit orig 0
                 res = Bits.rotateR orig 1
-            writeMemory addr res
+            writeByteM addr res
             modifyRegistersM $
                 adjustFlag Carry carry
                     . adjustFlag Zero (res == 0)
@@ -1507,7 +1502,7 @@ execute Instruction{tag, baseCycles} =
                 carry = if hasFlag' Carry s then 1 else 0
                 carry' = Bits.testBit orig 7
                 res = Bits.shiftL orig 1 + carry
-            writeMemory addr res
+            writeByteM addr res
             modifyRegistersM $
                 adjustFlag Carry carry'
                     . adjustFlag Zero (res == 0)
@@ -1533,7 +1528,7 @@ execute Instruction{tag, baseCycles} =
                 orig = readByte s.memoryBus addr
                 carry = Bits.testBit orig 7
                 res = Bits.rotateL orig 1
-            writeMemory addr res
+            writeByteM addr res
             modifyRegistersM $
                 adjustFlag Carry carry
                     . adjustFlag Zero (res == 0)
@@ -1559,7 +1554,7 @@ execute Instruction{tag, baseCycles} =
                 orig = readByte s.memoryBus addr
                 carry = Bits.testBit orig 7
                 res = Bits.shiftL orig 1
-            writeMemory addr res
+            writeByteM addr res
             modifyRegistersM $
                 adjustFlag Carry carry
                     . adjustFlag Zero (res == 0)
@@ -1587,7 +1582,7 @@ execute Instruction{tag, baseCycles} =
                 carry = Bits.testBit orig 0
                 msb = orig .&. 0x80
                 res = Bits.shiftR orig 1 + msb
-            writeMemory addr res
+            writeByteM addr res
             modifyRegistersM $
                 adjustFlag Carry carry
                     . adjustFlag Zero (res == 0)
@@ -2045,4 +2040,4 @@ dmaTransfer n = do
     -- TODO: use a slice pointing to cartridge memory instead?
     forM_ [0 .. 0xa0 - 1] $ \i ->
         -- TODO: improve
-        writeMemory (0xfe00 + i) (readByte bus (startAddr + i))
+        writeByteM (0xfe00 + i) (readByte bus (startAddr + i))
