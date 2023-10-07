@@ -8,52 +8,62 @@ module GameBoy.Render where
 import Control.Exception qualified as Exception
 import Control.Monad
 import Control.Monad.IO.Class (MonadIO)
+import Data.ByteString qualified as BS
+import Data.ByteString.Builder qualified as BSB
 import Data.Foldable
 import Data.IORef
 import Data.Set qualified as Set
 import Data.Time qualified as Time
 import Data.Vector qualified as Vector
-import SDL (($=))
+import Foreign.Ptr (Ptr)
 import SDL qualified
+import SDL.Raw qualified
 
 import GameBoy.Gamepad
 import GameBoy.State
 
-tileSize = 6
+tileSize = 8
 
-renderScreen :: MonadIO m => SDL.Renderer -> InMemoryScreen -> m ()
-renderScreen renderer scr = do
-    SDL.clear renderer
-    Vector.imapM_
-        ( \y line ->
-            Vector.imapM_
-                ( \x color -> do
-                    -- NOTE: this is VERY slow
-                    let rect =
-                            SDL.Rectangle
-                                (SDL.P $ SDL.V2 (tileSize * fromIntegral x) (tileSize * fromIntegral y))
-                                (SDL.V2 tileSize tileSize)
-                    SDL.rendererDrawColor renderer $= getColor color
-                    SDL.fillRect renderer (Just rect)
-                )
-                line
+updateTexture :: MonadIO m => SDL.Texture -> Ptr SDL.Raw.PixelFormat -> InMemoryScreen -> m ()
+updateTexture tex fmt scr = do
+    oneDim <-
+        Vector.mapM
+            ( \line ->
+                Vector.mapM
+                    ( \c ->
+                        let (red, green, blue, alpha) = getColor c
+                        in SDL.Raw.mapRGBA fmt red green blue alpha
+                    )
+                    line
+            )
+            scr
+    SDL.updateTexture
+        tex
+        Nothing
+        ( BS.toStrict $
+            BSB.toLazyByteString $
+                Vector.foldl' (\builder next -> builder <> BSB.word32LE next) mempty $
+                    Vector.concatMap id oneDim
         )
-        scr
-    SDL.present renderer
+        (160 * 4)
+    pure ()
   where
     getColor = \case
-        0 -> SDL.V4 155 188 15 0xff
-        1 -> SDL.V4 139 172 15 0xff
-        2 -> SDL.V4 48 98 48 0xff
-        3 -> SDL.V4 15 56 15 0xff
+        0 -> (155, 188, 15, 0xff)
+        1 -> (139, 172, 15, 0xff)
+        2 -> (48, 98, 48, 0xff)
+        3 -> (15, 56, 15, 0xff)
         _ -> error "impossible color"
 
 runGraphics :: (GamepadState -> IO ()) -> IORef InMemoryScreen -> IO ()
 runGraphics inputCallback scrRef = do
     withSdl $ withSdlWindow $ \w ->
         withSdlRenderer w $ \renderer -> do
-            now <- Time.getCurrentTime
-            void $ appLoop renderer now 0
+            withScreenTexture renderer $ \tex -> do
+                fmt <- SDL.Raw.allocFormat SDL.Raw.SDL_PIXELFORMAT_RGBA8888
+                now <- Time.getCurrentTime
+                void $ appLoop renderer tex fmt now 0
+                SDL.Raw.freeFormat fmt
   where
     escPressed evt =
         case SDL.eventPayload evt of
@@ -88,13 +98,14 @@ runGraphics inputCallback scrRef = do
                     _ -> buttonActions
             )
             Set.empty
-    appLoop renderer t (frames :: Int) = do
+    appLoop renderer tex fmt t (frames :: Int) = do
         evts <- SDL.pollEvents
         let buttons = collectButtonPresses evts
         inputCallback buttons
         SDL.clear renderer
         scr <- readIORef scrRef
-        renderScreen renderer scr
+        updateTexture tex fmt scr
+        SDL.copy renderer tex Nothing Nothing
         SDL.present renderer
         unless (any escPressed evts) $ do
             if frames == 59
@@ -104,8 +115,8 @@ runGraphics inputCallback scrRef = do
                         dt = Time.diffUTCTime now t
                         fps = 60 / dt
                     putStrLn $ "        RENDER FPS: " <> show fps
-                    appLoop renderer now 0
-                else appLoop renderer t (frames + 1)
+                    appLoop renderer tex fmt now 0
+                else appLoop renderer tex fmt t (frames + 1)
 
 withSdl :: IO a -> IO a
 withSdl =
@@ -139,4 +150,13 @@ withSdlRenderer window = do
         ( \r -> do
             SDL.destroyRenderer r
             putStrLn "Renderer destroyed"
+        )
+
+withScreenTexture :: SDL.Renderer -> (SDL.Texture -> IO a) -> IO a
+withScreenTexture renderer = do
+    Exception.bracket
+        (SDL.createTexture renderer SDL.RGBA8888 SDL.TextureAccessStreaming (SDL.V2 160 144))
+        ( \tex -> do
+            SDL.destroyTexture tex
+            putStrLn "Screen texture destroyed"
         )

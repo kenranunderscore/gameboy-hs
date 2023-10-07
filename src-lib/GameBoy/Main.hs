@@ -123,5 +123,7 @@ main = do
                 void $ runReaderT (execStateT (mainLoop scrRef buttonsRef) (mkInitialState bus)) cart
             graphics <-
                 Async.asyncBound $
+                    -- FIXME: try out something more performant than STM, as we
+                    -- don't have concurrent writes
                     Render.runGraphics (STM.atomically . STM.writeTVar buttonsRef) scrRef
             void $ Async.waitAnyCancel [graphics, game]
