@@ -8,6 +8,7 @@
 
 module GameBoy.State where
 
+import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Bits ((.&.))
 import Data.Vector (Vector)
@@ -129,4 +130,4 @@ modifyRegistersM fn = modify' $ \s -> s{registers = fn s.registers}
 modifyScreenM :: (InMemoryScreen -> InMemoryScreen) -> GameBoy ()
 modifyScreenM f = modify' $ \s -> s{screen = f s.screen}
 
-type GameBoy a = StateT CPUState IO a
+type GameBoy a = StateT CPUState (ReaderT Cartridge IO) a

@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -8,6 +9,7 @@
 module GameBoy.CPU where
 
 import Control.Monad
+import Control.Monad.Reader (ask)
 import Control.Monad.State.Strict
 import Data.Bits ((.&.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
@@ -1007,17 +1009,26 @@ writeByteM :: U16 -> U8 -> GameBoy ()
 writeByteM addr n =
     -- HACK: "listen" for changes that potentially cascade to other state
     -- changes here
-    case addr of
-        0xff46 ->
+    if
+        | addr == 0xff46 ->
             dmaTransfer n
-        0xff07 -> do
+        | addr == 0xff07 -> do
             freq <- timerFrequency <$> busM
             modifyBusM (writeByte addr n)
             freq' <- timerFrequency <$> busM
             when (freq' /= freq) $
                 setTimerCounterM (counterFromFrequency freq')
-        _ ->
+        | addr >= 0x2000 && addr < 0x4000 ->
+            switchMemoryBank n
+        | otherwise ->
             modifyBusM (writeByte addr n)
+
+-- FIXME: try memorizing the currently used bank and only switch if necessary
+switchMemoryBank :: U8 -> GameBoy ()
+switchMemoryBank n = do
+    cartridge <- ask
+    let val = n .&. 0x1f
+    modifyBusM $ \bus -> bus{romBank = getMemoryBank val cartridge}
 
 push :: U16 -> GameBoy ()
 push n = do

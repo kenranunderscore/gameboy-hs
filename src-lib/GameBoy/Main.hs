@@ -7,6 +7,7 @@ module GameBoy.Main (main) where
 import Control.Concurrent.Async qualified as Async
 import Control.Concurrent.STM qualified as STM
 import Control.Monad
+import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.IORef
 import Data.Time qualified as Time
@@ -117,8 +118,9 @@ main = do
             scrRef <- newIORef emptyScreen
             buttonsRef <- STM.newTVarIO noButtonsPressed
             game <- Async.async $ do
-                bus <- initializeMemoryBus cartridgePath
-                void $ execStateT (mainLoop scrRef buttonsRef) (mkInitialState bus)
+                cart <- loadCartridgeFromFile cartridgePath
+                let bus = mkMemoryBus cart.memory
+                void $ runReaderT (execStateT (mainLoop scrRef buttonsRef) (mkInitialState bus)) cart
             graphics <-
                 Async.asyncBound $
                     Render.runGraphics (STM.atomically . STM.writeTVar buttonsRef) scrRef

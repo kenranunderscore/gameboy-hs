@@ -269,6 +269,11 @@ data Cartridge = Cartridge
     }
     deriving (Show)
 
+-- FIXME: incomplete
+getMemoryBank :: U8 -> Cartridge -> Memory
+getMemoryBank n cart =
+    Unboxed.slice (fromIntegral n * 0x4000) 0x4000 cart.memory
+
 readCartridgeHeader :: Memory -> Maybe CartridgeHeader
 readCartridgeHeader mem =
     Just $
@@ -286,8 +291,17 @@ readCartridgeHeader mem =
 loadCartridgeFromFile :: FilePath -> IO Cartridge
 loadCartridgeFromFile path = do
     bytes <- BS.readFile path
-    let mem = Unboxed.fromList $ BS.unpack bytes
-    pure $ Cartridge mem (readCartridgeHeader mem)
+    let
+        mem = Unboxed.fromList $ BS.unpack bytes
+        cart = Cartridge mem (readCartridgeHeader mem)
+    case cart.header of
+        Nothing -> putStrLn "No cartridge header could be read"
+        Just h -> do
+            putStrLn $ "Loaded cartride:  " <> h.title
+            putStrLn $ "Cartridge type:  " <> show h.cartridgeType
+            putStrLn $ "CGB:  " <> toHex h.cgb
+            putStrLn $ "SGB:  " <> toHex h.sgb
+    pure cart
 
 mkMemoryBus :: Memory -> MemoryBus
 mkMemoryBus cart =
@@ -307,15 +321,3 @@ mkMemoryBus cart =
 mkEmptyMemory :: U16 -> Memory
 mkEmptyMemory len =
     Unboxed.replicate (fromIntegral len) 0
-
-initializeMemoryBus :: FilePath -> IO MemoryBus
-initializeMemoryBus path = do
-    cart <- loadCartridgeFromFile path
-    case cart.header of
-        Nothing -> putStrLn "No cartridge header could be read"
-        Just h -> do
-            putStrLn $ "Loaded cartride:  " <> h.title
-            putStrLn $ "Cartridge type:  " <> show h.cartridgeType
-            putStrLn $ "CGB:  " <> toHex h.cgb
-            putStrLn $ "SGB:  " <> toHex h.sgb
-    pure $ mkMemoryBus cart.memory
