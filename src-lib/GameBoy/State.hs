@@ -99,7 +99,17 @@ data CPUState = CPUState
 
 mkInitialState :: MemoryBus -> CPUState
 mkInitialState bus =
-    CPUState initialRegisters bus 0 1024 True 456 emptyScreen emptyScreen False
+    CPUState
+        { registers = initialRegisters
+        , memoryBus = bus
+        , dividerCounter = 0
+        , timerCounter = 1024
+        , masterInterruptEnable = True
+        , scanlineCounter = 456
+        , screen = emptyScreen
+        , preparedScreen = emptyScreen
+        , halted = False
+        }
   where
     initialRegisters =
         Registers
