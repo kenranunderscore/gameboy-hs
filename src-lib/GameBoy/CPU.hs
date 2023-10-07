@@ -83,7 +83,6 @@ readRegister r rs =
         H -> rs.h
         L -> rs.l
 
--- TODO: try out using set* as primitive operation
 modifyRegister :: TargetRegister -> (U8 -> U8) -> Registers -> Registers
 modifyRegister r f rs =
     let val = f $ readRegister r rs
@@ -96,7 +95,6 @@ modifyRegister r f rs =
         H -> rs{h = val}
         L -> rs{l = val}
 
--- TODO: try out using set* as primitive operation
 modifyRegisterM :: TargetRegister -> (U8 -> U8) -> GameBoy ()
 modifyRegisterM r f = modifyRegistersM $ modifyRegister r f
 
@@ -124,7 +122,6 @@ readRegister16M rr = do
     rs <- registersM
     pure $ readRegister16 rr rs
 
--- TODO: try out using set* as primitive operation
 modifyRegister16 :: TargetRegister16 -> (U16 -> U16) -> Registers -> Registers
 modifyRegister16 rr f rs =
     let val = f $ readRegister16 rr rs
@@ -133,7 +130,6 @@ modifyRegister16 rr f rs =
         DE -> setDE val rs
         HL -> setHL val rs
 
--- TODO: try out using set* as primitive operation
 modifyRegister16M :: TargetRegister16 -> (U16 -> U16) -> GameBoy ()
 modifyRegister16M r f = modifyRegistersM $ modifyRegister16 r f
 
