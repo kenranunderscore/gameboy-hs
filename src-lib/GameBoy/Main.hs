@@ -14,6 +14,7 @@ import Data.Time qualified as Time
 import System.Environment qualified as Environment
 import System.IO
 
+import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.Gamepad
 import GameBoy.Memory
@@ -21,7 +22,7 @@ import GameBoy.PPU
 import GameBoy.Render qualified as Render
 import GameBoy.State
 
-maxCyclesPerFrame :: Int
+maxCyclesPerFrame :: U32
 maxCyclesPerFrame = 4_194_304 `div` 60
 
 mainLoop ::
@@ -71,7 +72,7 @@ mainLoop scrRef buttonsRef = do
         updateTimers cycles
         updateGraphics cycles
         interruptCycles <- handleInterrupts
-        oneFrame (n + cycles + interruptCycles)
+        oneFrame (n + cycles.value + interruptCycles.value)
     syncInput = do
         buttons <- liftIO $ STM.readTVarIO buttonsRef
         -- unless (Set.null buttons) (liftIO $ print buttons)

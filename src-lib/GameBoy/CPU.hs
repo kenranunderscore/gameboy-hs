@@ -14,7 +14,7 @@ import Control.Monad.State.Strict
 import Data.Bits ((.&.), (.>>.), (.|.))
 import Data.Bits qualified as Bits
 import Data.Function ((&))
-import Data.Vector qualified as Vector
+import Data.Vector.Unboxed qualified as Vector
 
 import GameBoy.BitStuff
 import GameBoy.Memory
@@ -419,7 +419,7 @@ fetchU16M = do
     pure $ readU16 s.memoryBus s.registers.pc
 
 {- FOURMOLU_DISABLE -}
-instrCycles :: Vector.Vector Int
+instrCycles :: Vector.Vector U32
 instrCycles = Vector.fromList $!
     [ 1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1 -- 0
     , 0, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1 -- 1
@@ -440,7 +440,7 @@ instrCycles = Vector.fromList $!
     ]
     -- 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 
-prefixedCycles :: Vector.Vector Int
+prefixedCycles :: Vector.Vector U32
 prefixedCycles = Vector.fromList $!
     [ 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2 -- 0
     , 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2 -- 1
@@ -462,14 +462,14 @@ prefixedCycles = Vector.fromList $!
     -- 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
 {- FOURMOLU_ENABLE -}
 
-lookupCycles :: U8 -> Int
-lookupCycles n = 4 * instrCycles Vector.! fromIntegral n
+lookupCycles :: U8 -> Cycles
+lookupCycles n = Cycles $ 4 * instrCycles Vector.! fromIntegral n
 
-lookupCyclesPrefixed :: U8 -> Int
-lookupCyclesPrefixed n = 4 * prefixedCycles Vector.! fromIntegral n
+lookupCyclesPrefixed :: U8 -> Cycles
+lookupCyclesPrefixed n = Cycles $ 4 * prefixedCycles Vector.! fromIntegral n
 
 data Instruction = Instruction
-    { baseCycles :: Int
+    { baseCycles :: Cycles
     , tag :: Instr
     }
 
@@ -1089,7 +1089,7 @@ deref rr = do
     s <- get
     pure $ readByte s.memoryBus (readRegister16 rr s.registers)
 
-execute :: Instruction -> GameBoy Int
+execute :: Instruction -> GameBoy Cycles
 execute Instruction{tag, baseCycles} =
     case tag of
         NOP ->
@@ -1959,12 +1959,12 @@ adc_a_u8 n = modifyRegistersM $ \rs ->
                 . adjustFlag HalfCarry needsHalfCarry
                 . adjustFlag Zero (res == 0)
 
-updateTimers :: Int -> GameBoy ()
+updateTimers :: Cycles -> GameBoy ()
 updateTimers cycles = do
     updateDivider cycles
     s <- get
     when (timerEnable s.memoryBus) $ do
-        let counter' = s.timerCounter - cycles
+        let counter' = s.timerCounter - fromIntegral cycles.value
         setTimerCounterM counter'
         when (counter' <= 0) $ do
             freq <- timerFrequency <$> busM
@@ -1979,10 +1979,10 @@ setTimerCounterM :: Int -> GameBoy ()
 setTimerCounterM val =
     modify' $ \s -> s{timerCounter = val}
 
-updateDivider :: Int -> GameBoy ()
+updateDivider :: Cycles -> GameBoy ()
 updateDivider cycles = do
     counter <- gets (.dividerCounter)
-    let counter' = counter + cycles
+    let counter' = counter + fromIntegral cycles.value
     setDividerCounter counter'
     when (counter' >= 255) $ do
         setDividerCounter 0
@@ -2015,7 +2015,7 @@ counterFromFrequency = \case
 timerFrequency :: MemoryBus -> TimerFrequency
 timerFrequency = readTimerFrequency . tac
 
-handleInterrupts :: GameBoy Int
+handleInterrupts :: GameBoy Cycles
 handleInterrupts = do
     s <- get
     if s.masterInterruptEnable
@@ -2028,9 +2028,7 @@ handleInterrupts = do
                 Just interrupt -> do
                     handleInterrupt interrupt
                     pure 20
-        else -- TODO: check whether 0 is correct; shouldn't it take cycles to
-        -- check memory?
-            pure 0
+        else pure 0
   where
     findInterrupt requestedInterrupts enabledInterrupts =
         case requestedInterrupts of

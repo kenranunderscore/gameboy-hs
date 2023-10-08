@@ -266,12 +266,12 @@ setLcdStatus = do
             let status' = Bits.setBit (Bits.clearBit status 1) 0
             modifyBusM $ setSTAT status'
 
-updateGraphics :: Int -> GameBoy ()
+updateGraphics :: Cycles -> GameBoy ()
 updateGraphics cycles = do
     setLcdStatus
     s <- get
     when (lcdEnable s.memoryBus) $ do
-        let counter = s.scanlineCounter - cycles
+        let counter = s.scanlineCounter - fromIntegral cycles.value
         if counter > 0
             then modify' $ \s' -> s'{scanlineCounter = counter}
             else do

@@ -141,3 +141,6 @@ modifyScreenM :: (InMemoryScreen -> InMemoryScreen) -> GameBoy ()
 modifyScreenM f = modify' $ \s -> s{screen = f s.screen}
 
 type GameBoy a = StateT CPUState (ReaderT Cartridge IO) a
+
+newtype Cycles = Cycles {value :: U32}
+    deriving newtype (Num)
