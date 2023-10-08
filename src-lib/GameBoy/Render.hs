@@ -46,7 +46,6 @@ updateTexture tex fmt scr = do
                     Vector.concatMap id oneDim
         )
         (160 * 4)
-    pure ()
   where
     getColor = \case
         0 -> (155, 188, 15, 0xff)

@@ -77,36 +77,6 @@ mainLoop scrRef buttonsRef = do
         -- unless (Set.null buttons) (liftIO $ print buttons)
         modifyBusM $ \bus -> bus{gamepadState = buttons}
 
--- snapshotBackgroundArea = do
---     bus <- use memoryBus
---     let
---         addr = case bus ^. bgTileMapArea of
---             Area9800 -> 0x9800
---             Area9C00 -> 0x9C00
---         tiles =
---             Vector.concatMap
---                 ( \y ->
---                     let rowTiles =
---                             fmap
---                                 ( \x ->
---                                     let
---                                         tileIdentifierAddr = addr + 32 * y + x
---                                         tileIdentifier = readByte bus tileIdentifierAddr
---                                         tileAddr = determineTileAddress tileIdentifier (bus ^. addressingMode)
---                                     in
---                                         readTile bus NoFlip tileAddr
---                                 )
---                                 (Vector.fromList [0 .. 31])
---                     in Vector.foldl1' (\v w -> Vector.zipWith (Vector.++) v w) rowTiles
---                 )
---                 (Vector.fromList [0 .. 31])
---         colorToU8 = \case
---             Color0 -> 0 :: U8
---             Color1 -> 1
---             Color2 -> 2
---             Color3 -> 3
---     pure $ fmap (fmap colorToU8) tiles
-
 main :: IO ()
 main = do
     hSetBuffering stdout LineBuffering
