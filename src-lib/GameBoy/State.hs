@@ -97,11 +97,11 @@ data CPUState = CPUState
     }
     deriving stock (Show)
 
-mkInitialState :: MemoryBus -> CPUState
-mkInitialState bus =
+mkInitialState :: Bool -> MemoryBus -> CPUState
+mkInitialState startWithBios bus =
     CPUState
         { registers = initialRegisters
-        , memoryBus = bus
+        , memoryBus = if startWithBios then loadBios bus else bus
         , dividerCounter = 0
         , timerCounter = 1024
         , masterInterruptEnable = True
@@ -121,7 +121,7 @@ mkInitialState bus =
             , h = 0x1
             , l = 0x4d
             , f = 0xb0
-            , pc = 0x100 -- start without BIOS for now
+            , pc = if startWithBios then 0 else 0x100
             , sp = 0xfffe
             }
 

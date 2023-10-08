@@ -1005,6 +1005,8 @@ fetchPrefixed = do
         0xff -> SET 7 A
         unknown -> error $ "impossible prefixed byte: " <> toHex unknown
 
+-- FIXME: to get rid of this, the module structure needs to be reworked and
+-- writeByte should/could be done with a side-effect
 writeByteM :: U16 -> U8 -> GameBoy ()
 writeByteM addr n =
     -- HACK: "listen" for changes that potentially cascade to other state
@@ -1020,15 +1022,22 @@ writeByteM addr n =
                 setTimerCounterM (counterFromFrequency freq')
         | addr >= 0x2000 && addr < 0x4000 ->
             switchMemoryBank n
+        | addr == 0xff50 && n > 0 ->
+            unloadBios
         | otherwise ->
             modifyBusM (writeByte addr n)
+
+unloadBios :: GameBoy ()
+unloadBios = do
+    cart <- ask
+    modifyBusM $ \bus -> bus{cartridge = getMemoryBank 0 cart.memory}
 
 -- FIXME: try memorizing the currently used bank and only switch if necessary
 switchMemoryBank :: U8 -> GameBoy ()
 switchMemoryBank n = do
     cartridge <- ask
     let val = n .&. 0x1f
-    modifyBusM $ \bus -> bus{romBank = getMemoryBank val cartridge}
+    modifyBusM $ \bus -> bus{romBank = getMemoryBank val cartridge.memory}
 
 push :: U16 -> GameBoy ()
 push n = do

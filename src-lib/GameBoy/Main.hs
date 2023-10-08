@@ -89,8 +89,10 @@ main = do
             buttonsRef <- STM.newTVarIO noButtonsPressed
             game <- Async.async $ do
                 cart <- loadCartridgeFromFile cartridgePath
-                let bus = mkMemoryBus cart.memory
-                void $ runReaderT (execStateT (mainLoop scrRef buttonsRef) (mkInitialState bus)) cart
+                let
+                    bus = mkMemoryBus cart.memory
+                    initialState = mkInitialState True bus
+                void $ runReaderT (execStateT (mainLoop scrRef buttonsRef) initialState) cart
             graphics <-
                 Async.asyncBound $
                     -- FIXME: try out something more performant than STM, as we

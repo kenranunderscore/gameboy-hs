@@ -42,6 +42,10 @@ data MemoryBus = MemoryBus
     }
     deriving (Show)
 
+loadBios :: MemoryBus -> MemoryBus
+loadBios bus =
+    bus{cartridge = Unboxed.update bus.cartridge (Unboxed.indexed bios)}
+
 -- | Set the n-th byte of a memory array to a fixed value.
 setByteAt :: U16 -> Memory -> U8 -> Memory
 setByteAt addr mem val = mem // [(fromIntegral addr, val)]
@@ -270,9 +274,9 @@ data Cartridge = Cartridge
     deriving (Show)
 
 -- FIXME: incomplete
-getMemoryBank :: U8 -> Cartridge -> Memory
+getMemoryBank :: U8 -> Memory -> Memory
 getMemoryBank n cart =
-    Unboxed.slice (fromIntegral n * 0x4000) 0x4000 cart.memory
+    Unboxed.slice (fromIntegral n * 0x4000) 0x4000 cart
 
 readCartridgeHeader :: Memory -> Maybe CartridgeHeader
 readCartridgeHeader mem =
@@ -306,8 +310,8 @@ loadCartridgeFromFile path = do
 mkMemoryBus :: Memory -> MemoryBus
 mkMemoryBus cart =
     MemoryBus
-        { cartridge = Unboxed.take 0x4000 cart
-        , romBank = Unboxed.slice 0x4000 0x4000 cart
+        { cartridge = getMemoryBank 0 cart
+        , romBank = getMemoryBank 1 cart
         , vram = mkEmptyMemory 0x2000
         , sram = mkEmptyMemory 0x2000
         , wram = mkEmptyMemory 0x2000
