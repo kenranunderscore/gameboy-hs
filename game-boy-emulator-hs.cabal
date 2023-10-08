@@ -31,7 +31,6 @@ library
     , containers
     , mtl
     , sdl2
-    , stm
     , time
     , vector
 

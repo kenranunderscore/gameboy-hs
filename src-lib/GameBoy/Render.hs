@@ -22,7 +22,7 @@ import SDL.Raw qualified
 import GameBoy.Gamepad
 import GameBoy.State
 
-tileSize = 8
+tileSize = 6
 
 updateTexture :: MonadIO m => SDL.Texture -> Ptr SDL.Raw.PixelFormat -> InMemoryScreen -> m ()
 updateTexture tex fmt scr = do

@@ -5,7 +5,6 @@
 module GameBoy.Main (main) where
 
 import Control.Concurrent.Async qualified as Async
-import Control.Concurrent.STM qualified as STM
 import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -27,7 +26,7 @@ maxCyclesPerFrame = 4_194_304 `div` 60
 
 mainLoop ::
     IORef InMemoryScreen ->
-    STM.TVar GamepadState ->
+    IORef GamepadState ->
     GameBoy ()
 mainLoop scrRef buttonsRef = do
     now <- liftIO Time.getCurrentTime
@@ -74,7 +73,7 @@ mainLoop scrRef buttonsRef = do
         interruptCycles <- handleInterrupts
         oneFrame (n + cycles.value + interruptCycles.value)
     syncInput = do
-        buttons <- liftIO $ STM.readTVarIO buttonsRef
+        buttons <- liftIO $ readIORef buttonsRef
         -- unless (Set.null buttons) (liftIO $ print buttons)
         modifyBusM $ \bus -> bus{gamepadState = buttons}
 
@@ -87,7 +86,7 @@ main = do
         [] -> fail "need path to ROM as first argument"
         (cartridgePath : _) -> do
             scrRef <- newIORef emptyScreen
-            buttonsRef <- STM.newTVarIO noButtonsPressed
+            buttonsRef <- newIORef noButtonsPressed
             game <- Async.async $ do
                 cart <- loadCartridgeFromFile cartridgePath
                 let
@@ -96,7 +95,5 @@ main = do
                 void $ runReaderT (execStateT (mainLoop scrRef buttonsRef) initialState) cart
             graphics <-
                 Async.asyncBound $
-                    -- FIXME: try out something more performant than STM, as we
-                    -- don't have concurrent writes
-                    Render.runGraphics (STM.atomically . STM.writeTVar buttonsRef) scrRef
+                    Render.runGraphics (writeIORef buttonsRef) scrRef
             void $ Async.waitAnyCancel [graphics, game]
