@@ -10,11 +10,11 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.IORef
 import Data.Time qualified as Time
-import System.Environment qualified as Environment
 import System.IO
 
 import GameBoy.BitStuff
 import GameBoy.CPU
+import GameBoy.CmdLineArgs
 import GameBoy.Gamepad
 import GameBoy.Memory
 import GameBoy.PPU
@@ -81,19 +81,16 @@ main :: IO ()
 main = do
     hSetBuffering stdout LineBuffering
     hSetBuffering stderr LineBuffering
-    args <- Environment.getArgs
-    case args of
-        [] -> fail "need path to ROM as first argument"
-        (cartridgePath : _) -> do
-            scrRef <- newIORef emptyScreen
-            buttonsRef <- newIORef noButtonsPressed
-            game <- Async.async $ do
-                cart <- loadCartridgeFromFile cartridgePath
-                let
-                    bus = mkMemoryBus cart.memory
-                    initialState = mkInitialState True bus
-                void $ runReaderT (execStateT (mainLoop scrRef buttonsRef) initialState) cart
-            graphics <-
-                Async.asyncBound $
-                    Render.runGraphics (writeIORef buttonsRef) scrRef
-            void $ Async.waitAnyCancel [graphics, game]
+    config <- readConfiguration
+    scrRef <- newIORef emptyScreen
+    buttonsRef <- newIORef noButtonsPressed
+    game <- Async.async $ do
+        cart <- loadCartridgeFromFile config.romPath
+        let
+            bus = mkMemoryBus cart.memory
+            initialState = mkInitialState config.withBios bus
+        void $ runReaderT (execStateT (mainLoop scrRef buttonsRef) initialState) cart
+    graphics <-
+        Async.asyncBound $
+            Render.runGraphics (writeIORef buttonsRef) scrRef
+    void $ Async.waitAnyCancel [graphics, game]

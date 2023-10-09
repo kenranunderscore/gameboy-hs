@@ -16,6 +16,7 @@ library
   import:           warnings
   exposed-modules:
     GameBoy.BitStuff
+    GameBoy.CmdLineArgs
     GameBoy.CPU
     GameBoy.Gamepad
     GameBoy.Main
@@ -30,6 +31,7 @@ library
     , bytestring
     , containers
     , mtl
+    , optparse-applicative
     , sdl2
     , time
     , vector
