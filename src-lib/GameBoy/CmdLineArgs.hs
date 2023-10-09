@@ -5,6 +5,7 @@ import Options.Applicative
 data Configuration = Configuration
     { withBios :: Bool
     , romPath :: FilePath
+    , targetFps :: Int
     }
     deriving (Show)
 
@@ -20,6 +21,15 @@ configuration =
             ( short 'r'
                 <> long "rom-path"
                 <> help "Path to ROM file"
+                <> metavar "PATH"
+            )
+        <*> option
+            auto
+            ( long "fps"
+                <> help "Target FPS"
+                <> showDefault
+                <> value 60
+                <> metavar "INT"
             )
 
 readConfiguration :: IO Configuration
