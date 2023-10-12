@@ -690,27 +690,22 @@ fetchPrefixed = do
         0xff -> SET 7 A
         unknown -> error $ "impossible prefixed byte: " <> toHex unknown
 
--- FIXME: to get rid of this, the module structure needs to be reworked and
--- writeByte should/could be done with a side-effect
 writeByteM :: U16 -> U8 -> GameBoy ()
-writeByteM addr n =
-    -- HACK: "listen" for changes that potentially cascade to other state
-    -- changes here
-    if
-        | addr == 0xff46 ->
-            dmaTransfer n
-        | addr == 0xff07 -> do
-            freq <- timerFrequency <$> busM
-            modifyBusM (writeByte addr n)
-            freq' <- timerFrequency <$> busM
-            when (freq' /= freq) $
-                setTimerCounterM (counterFromFrequency freq')
-        | addr >= 0x2000 && addr < 0x4000 ->
-            switchMemoryBank n
-        | addr == 0xff50 && n > 0 ->
-            unloadBios
-        | otherwise ->
-            modifyBusM (writeByte addr n)
+writeByteM addr n = do
+    (bus, meffect) <- writeByte addr n <$> busM
+    maybe
+        (modifyBusM $ const bus)
+        ( \case
+            BeginDMATransfer -> dmaTransfer n
+            UnloadBIOS -> unloadBios
+            ChangeFrequency oldFreq -> do
+                modifyBusM $ const bus
+                let newFreq = timerFrequency bus
+                when (oldFreq /= newFreq) $
+                    setTimerCounterM (counterFromFrequency newFreq)
+            SwitchMemoryBank -> switchMemoryBank n
+        )
+        meffect
 
 unloadBios :: GameBoy ()
 unloadBios = do
@@ -1675,30 +1670,12 @@ updateDivider cycles = do
   where
     setDividerCounter val = modify' $ \s -> s{dividerCounter = val}
 
-data TimerFrequency
-    = Freq4K
-    | Freq16K
-    | Freq64K
-    | Freq256K
-    deriving (Eq, Show)
-
-readTimerFrequency :: U8 -> TimerFrequency
-readTimerFrequency n =
-    case (Bits.testBit n 1, Bits.testBit n 0) of
-        (False, False) -> Freq4K
-        (False, True) -> Freq256K
-        (True, False) -> Freq64K
-        (True, True) -> Freq16K
-
 counterFromFrequency :: TimerFrequency -> Int
 counterFromFrequency = \case
     Freq4K -> 1024
     Freq16K -> 256
     Freq64K -> 64
     Freq256K -> 16
-
-timerFrequency :: MemoryBus -> TimerFrequency
-timerFrequency = readTimerFrequency . tac
 
 handleInterrupts :: GameBoy Cycles
 handleInterrupts = do

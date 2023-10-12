@@ -75,32 +75,48 @@ readGamepad bus = toJoyp buttons val
     val = bus.io ! 0
     buttons = bus.gamepadState
 
-writeByte :: U16 -> U8 -> MemoryBus -> MemoryBus
+data MemoryWriteEffect
+    = BeginDMATransfer
+    | SwitchMemoryBank
+    | UnloadBIOS
+    | ChangeFrequency TimerFrequency
+
+writeByte :: U16 -> U8 -> MemoryBus -> (MemoryBus, Maybe MemoryWriteEffect)
 writeByte addr n bus
     -- writes to cartridge ROM cannot happen, but can be used to trigger MBC
     -- interaction
-    | addr < 0x8000 = bus
-    | addr < 0xa000 = bus{vram = writeTo bus.vram 0x8000}
-    | addr < 0xc000 = bus{sram = writeTo bus.sram 0xa000}
-    | addr < 0xe000 = bus{wram = writeTo bus.wram 0xc000}
-    | addr < 0xfe00 = bus{wram = writeTo bus.wram 0xc000} -- echoes WRAM
-    | addr < 0xfea0 = bus{oam = writeTo bus.oam 0xfe00}
-    | addr < 0xff00 = bus -- forbidden area
+    | addr < 0x2000 = only bus
+    | addr < 0x4000 = (bus, Just SwitchMemoryBank)
+    | addr < 0x8000 = only bus
+    | addr < 0xa000 = only bus{vram = writeTo bus.vram 0x8000}
+    | addr < 0xc000 = only bus{sram = writeTo bus.sram 0xa000}
+    | addr < 0xe000 = only bus{wram = writeTo bus.wram 0xc000}
+    | addr < 0xfe00 = only bus{wram = writeTo bus.wram 0xc000} -- echoes WRAM
+    | addr < 0xfea0 = only bus{oam = writeTo bus.oam 0xfe00}
+    | addr < 0xff00 = only bus -- forbidden area
     | addr < 0xff80 = writeIO addr n bus
-    | addr < 0xffff = bus{hram = writeTo bus.hram 0xff80}
-    | addr == 0xffff = bus{ie = n}
+    | addr < 0xffff = only bus{hram = writeTo bus.hram 0xff80}
+    | addr == 0xffff = only bus{ie = n}
     | otherwise = error "the impossible happened"
   where
+    only bus' = (bus', Nothing)
     writeTo dest offset =
         setByteAt (addr - offset) dest n
 
-writeIO :: U16 -> U8 -> MemoryBus -> MemoryBus
+writeIO :: U16 -> U8 -> MemoryBus -> (MemoryBus, Maybe MemoryWriteEffect)
 writeIO addr n bus =
     case addr of
         -- writing anything to the divider or scanline register resets them
-        0xff04 -> bus{io = setByteAt offset bus.io 0}
-        0xff44 -> bus{io = setByteAt offset bus.io 0}
-        _ -> bus{io = setByteAt offset bus.io n}
+        0xff04 -> (bus{io = setByteAt offset bus.io 0}, Nothing)
+        0xff07 ->
+            let
+                oldFreq = timerFrequency bus
+                bus' = bus{io = setByteAt offset bus.io n}
+            in
+                (bus', Just $ ChangeFrequency oldFreq)
+        0xff44 -> (bus{io = setByteAt offset bus.io 0}, Nothing)
+        0xff46 -> (bus, Just BeginDMATransfer)
+        _ -> (bus{io = setByteAt offset bus.io n}, Nothing)
   where
     offset = addr - 0xff00
 
@@ -169,6 +185,24 @@ tma bus = readByte bus 0xff06
 tac :: MemoryBus -> U8
 tac bus = readByte bus 0xff07
 
+data TimerFrequency
+    = Freq4K
+    | Freq16K
+    | Freq64K
+    | Freq256K
+    deriving (Eq, Show)
+
+readTimerFrequency :: U8 -> TimerFrequency
+readTimerFrequency n =
+    case (Bits.testBit n 1, Bits.testBit n 0) of
+        (False, False) -> Freq4K
+        (False, True) -> Freq256K
+        (True, False) -> Freq64K
+        (True, True) -> Freq16K
+
+timerFrequency :: MemoryBus -> TimerFrequency
+timerFrequency = readTimerFrequency . tac
+
 bgPalette :: MemoryBus -> U8
 bgPalette bus = readByte bus 0xff47
 
@@ -191,7 +225,7 @@ toggleInterrupt enabled interrupt bus =
         change = if enabled then Bits.setBit else Bits.clearBit
         val = change (readByte bus 0xff0f) interrupt
     in
-        writeByte 0xff0f val bus
+        fst $ writeByte 0xff0f val bus
 
 requestInterrupt :: Int -> MemoryBus -> MemoryBus
 requestInterrupt = toggleInterrupt True
