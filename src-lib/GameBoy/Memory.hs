@@ -5,7 +5,47 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE NoFieldSelectors #-}
 
-module GameBoy.Memory where
+module GameBoy.Memory (
+    Cartridge (..),
+    MemoryBus (..),
+    MemoryWriteEffect (..),
+    TimerFrequency (..),
+    bgPalette,
+    disableInterrupt,
+    displayWindow,
+    getMemoryBank,
+    interruptFlags,
+    lcdEnable,
+    lcdStatus,
+    lcdc,
+    loadBios,
+    loadCartridgeFromFile,
+    lyc,
+    mkEmptyMemory,
+    mkMemoryBus,
+    modifyDivider,
+    modifyScanline,
+    modifyTima,
+    oamRead,
+    objEnabled,
+    readByte,
+    readU16,
+    requestInterrupt,
+    scanline,
+    setSTAT,
+    spriteUsesTwoTiles,
+    tac,
+    tima,
+    timerEnable,
+    timerFrequency,
+    tma,
+    viewportX,
+    viewportY,
+    windowX,
+    windowY,
+    writeByte,
+)
+where
 
 import Data.Bits qualified as Bits
 import Data.ByteString qualified as BS
@@ -130,6 +170,11 @@ readU16 bus addr =
 scanline :: MemoryBus -> U8
 scanline bus = readByte bus 0xff44
 
+modifyScanline :: (U8 -> U8) -> MemoryBus -> MemoryBus
+modifyScanline f bus =
+    let orig = readByte bus 0xff44
+    in bus{io = setByteAt 0x44 bus.io (f orig)}
+
 lcdc :: MemoryBus -> U8
 lcdc bus = readByte bus 0xff40
 
@@ -211,13 +256,6 @@ timerEnable bus = Bits.testBit (tac bus) 2
 
 interruptFlags :: MemoryBus -> U8
 interruptFlags bus = readByte bus 0xff0f
-
-interruptRequested :: Int -> MemoryBus -> Bool
-interruptRequested interrupt bus =
-    Bits.testBit (interruptFlags bus) interrupt
-
-timerIntRequested :: MemoryBus -> Bool
-timerIntRequested = interruptRequested 2
 
 toggleInterrupt :: Bool -> Int -> MemoryBus -> MemoryBus
 toggleInterrupt enabled interrupt bus =

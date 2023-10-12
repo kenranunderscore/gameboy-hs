@@ -261,7 +261,7 @@ setLcdStatus = do
                     , preparedScreen = emptyScreen
                     , scanlineCounter = 456
                     }
-            modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io 0} -- TODO: DIV
+            modifyBusM $ modifyScanline (const 0)
             -- TODO refactor mode reading/setting
             -- set vblank mode
             let status' = Bits.setBit (Bits.clearBit status 1) 0
@@ -277,12 +277,12 @@ updateGraphics cycles = do
             then modify' $ \s' -> s'{scanlineCounter = counter}
             else do
                 modify' $ \s' -> s'{scanlineCounter = s'.scanlineCounter + 456}
-                modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io (readByte bus 0xff44 + 1)} -- TODO: DIV
+                modifyBusM $ modifyScanline (+ 1)
                 line <- scanline <$> busM
                 if
                     | line == 144 -> do
                         modify' $ \s' -> s'{screen = emptyScreen, preparedScreen = s'.screen}
                         modifyBusM $ requestInterrupt 0
                     | line > 153 -> do
-                        modifyBusM $ \bus -> bus{io = setByteAt 0x44 bus.io 0}
+                        modifyBusM $ modifyScanline (const 0)
                     | otherwise -> pure ()
