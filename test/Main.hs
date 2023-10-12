@@ -3,7 +3,6 @@
 
 module Main (main) where
 
-import Control.Monad.State.Strict
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -70,7 +69,7 @@ stackTests =
         "Unit tests for interaction with the memory-mapped stack"
         [ testCase "pop after push" $ do
             let action = push 0xabcd >> pop
-            res <- evalStateT action (mkInitialState defaultMemoryBus)
+            res <- runGameBoy action defaultCartridge initialState
             toHex res @?= "$abcd"
         , testCase "Multiple pops after multiple pushes" $ do
             let action = do
@@ -81,11 +80,16 @@ stackTests =
                     x2 <- pop
                     x3 <- pop
                     pure (x1, x2, x3)
-            (x, y, z) <- evalStateT action (mkInitialState defaultMemoryBus)
+            (x, y, z) <- runGameBoy action defaultCartridge initialState
             toHex x @?= "$7"
             toHex y @?= "$112e"
             toHex z @?= "$b0a3"
         ]
+  where
+    emptyCartridgeMemory = mkEmptyMemory 0x8000
+    defaultBus = mkMemoryBus emptyCartridgeMemory
+    defaultCartridge = Cartridge emptyCartridgeMemory Nothing
+    initialState = mkInitialState False defaultBus
 
 determinePixelColorsTests :: TestTree
 determinePixelColorsTests =
