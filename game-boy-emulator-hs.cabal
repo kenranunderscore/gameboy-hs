@@ -18,7 +18,9 @@ library
     GameBoy.BitStuff
     GameBoy.CmdLineArgs
     GameBoy.CPU
+    GameBoy.Cycles
     GameBoy.Gamepad
+    GameBoy.Instruction
     GameBoy.Main
     GameBoy.Memory
     GameBoy.PPU

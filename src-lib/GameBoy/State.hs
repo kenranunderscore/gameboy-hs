@@ -144,6 +144,3 @@ type GameBoy a = StateT CPUState (ReaderT Cartridge IO) a
 
 runGameBoy :: GameBoy a -> Cartridge -> CPUState -> IO a
 runGameBoy action cart s = runReaderT (evalStateT action s) cart
-
-newtype Cycles = Cycles {value :: U32}
-    deriving newtype (Num)

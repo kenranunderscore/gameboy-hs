@@ -16,6 +16,7 @@ import System.IO
 import GameBoy.BitStuff
 import GameBoy.CPU
 import GameBoy.CmdLineArgs
+import GameBoy.Cycles
 import GameBoy.Gamepad
 import GameBoy.Memory
 import GameBoy.PPU

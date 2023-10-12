@@ -16,6 +16,7 @@ import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 
 import GameBoy.BitStuff
+import GameBoy.Cycles
 import GameBoy.Memory
 import GameBoy.State
 
