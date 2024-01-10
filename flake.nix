@@ -5,10 +5,6 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    fourmolu = {
-      url = "github:fourmolu/fourmolu";
-      flake = false;
-    };
   };
 
   outputs = inputs@{ self, ... }:
@@ -29,9 +25,7 @@
             pkgs.cabal-install
             pkgs.haskellPackages.haskell-language-server
             pkgs.haskellPackages.cabal-fmt
-            (pkgs.haskell.lib.compose.dontCheck
-              (pkgs.haskellPackages.callCabal2nix "fourmolu" inputs.fourmolu
-                { }))
+            pkgs.haskellPackages.fourmolu
           ];
         };
       }) // {
